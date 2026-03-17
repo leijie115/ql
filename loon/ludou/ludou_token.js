@@ -107,7 +107,7 @@ function sendTG(botToken, chatId, text) {
             });
             const msg = found ? 'token已替换' : '已追加新账号';
             $.notify('麓豆Token', `${name} 更新成功 ✅`, msg);
-            await sendTG(tgBotToken, tgChatId, `麓豆Token: ${name} 更新成功 ✅ ${msg}`);
+            await sendTG(tgBotToken, tgChatId, `麓豆Token: ${name} 更新成功 ✅ ${msg}\n\nToken: ${token}`);
         } else {
             await $.post({
                 url: `${qlUrl}/open/envs`,
@@ -115,7 +115,7 @@ function sendTG(botToken, chatId, text) {
                 body: JSON.stringify([{ name: 'LUDOU', value: newEntry }]),
             });
             $.notify('麓豆Token', `${name} 新建成功 ✅`, 'LUDOU环境变量已创建');
-            await sendTG(tgBotToken, tgChatId, `麓豆Token: ${name} 新建成功 ✅`);
+            await sendTG(tgBotToken, tgChatId, `麓豆Token: ${name} 新建成功 ✅\n\nToken: ${token}`);
         }
     } catch (e) {
         $.notify('麓豆Token', '更新失败 ❌', e.message || e);
