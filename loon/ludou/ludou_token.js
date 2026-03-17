@@ -68,37 +68,40 @@ const $ = {
         const envData = JSON.parse(envResp.body);
         const envList = envData.data || [];
 
-        const newValue = `${name}#${token}`;
+        const newEntry = `${name}#${token}`;
 
-        // 青龙换行分隔 = 多条同名LUDOU环境变量，每条值为 名称#token
-        const targetList = envList.filter(e => e.name === 'LUDOU');
+        // LUDOU 是一个环境变量，值为换行分隔的多行: 名称1#token1\n名称2#token2
+        const targetEnv = envList.find(e => e.name === 'LUDOU');
 
-        if (targetList.length > 0) {
-            let targetEnv = targetList.find(e => {
-                const idx = e.value.indexOf('#');
-                return idx > -1 && e.value.substring(0, idx) === name;
-            });
+        if (targetEnv) {
+            const lines = targetEnv.value.split('\n').filter(Boolean);
+            let found = false;
 
-            if (targetEnv) {
-                await $.put({
-                    url: `${qlUrl}/open/envs`,
-                    headers: authHeaders,
-                    body: JSON.stringify({ name: 'LUDOU', value: newValue, id: targetEnv.id }),
-                });
-                $.notify('麓豆Token', `${name} 更新成功 ✅`, 'token已自动更新到青龙面板');
-            } else {
-                await $.post({
-                    url: `${qlUrl}/open/envs`,
-                    headers: authHeaders,
-                    body: JSON.stringify([{ name: 'LUDOU', value: newValue }]),
-                });
-                $.notify('麓豆Token', `${name} 新增成功 ✅`, '已新增一条LUDOU环境变量');
+            for (let i = 0; i < lines.length; i++) {
+                const idx = lines[i].indexOf('#');
+                if (idx > -1 && lines[i].substring(0, idx) === name) {
+                    lines[i] = newEntry;
+                    found = true;
+                    break;
+                }
             }
+
+            if (!found) {
+                lines.push(newEntry);
+            }
+
+            const updatedValue = lines.join('\n');
+            await $.put({
+                url: `${qlUrl}/open/envs`,
+                headers: authHeaders,
+                body: JSON.stringify({ name: 'LUDOU', value: updatedValue, id: targetEnv.id }),
+            });
+            $.notify('麓豆Token', `${name} 更新成功 ✅`, found ? 'token已替换' : '已追加新账号');
         } else {
             await $.post({
                 url: `${qlUrl}/open/envs`,
                 headers: authHeaders,
-                body: JSON.stringify([{ name: 'LUDOU', value: newValue }]),
+                body: JSON.stringify([{ name: 'LUDOU', value: newEntry }]),
             });
             $.notify('麓豆Token', `${name} 新建成功 ✅`, 'LUDOU环境变量已创建');
         }
