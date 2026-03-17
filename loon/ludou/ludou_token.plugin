@@ -3,8 +3,13 @@
 #!author=leos
 #!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Cookie.png
 
+[Argument]
+ql_url = input,"",tag=青龙面板地址,desc=如 https://ql.example.com
+ql_client_id = input,"",tag=Client ID,desc=青龙应用Client ID
+ql_client_secret = input,"",tag=Client Secret,desc=青龙应用Client Secret
+
 [Script]
-http-response https://luhu-beta1-web\.crm\.luxelakes\.com//?v1/user/userInfo script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ludou/ludou_token.js, requires-body=true, tag=麓豆Token
+http-response https://luhu-beta1-web\.crm\.luxelakes\.com//?v1/user/userInfo script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ludou/ludou_token.js, requires-body=true, tag=麓豆Token, argument=[{ql_url},{ql_client_id},{ql_client_secret}]
 
 [MITM]
 hostname = luhu-beta1-web.crm.luxelakes.com
