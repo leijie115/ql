@@ -41,8 +41,9 @@ const $ = {
         const token = body.data.token;
         const name = body.data.nickName || '麓豆账号';
 
-        // 从插件argument读取青龙配置，格式: ql_url,ql_client_id,ql_client_secret
-        const args = ($argument || '').split(',').map(s => s.trim());
+        // 从插件argument读取青龙配置
+        const argStr = typeof $argument !== 'undefined' ? $argument : '';
+        const args = argStr.split(',').map(s => s.trim());
         const [qlUrl, clientId, clientSecret] = args;
 
         if (!qlUrl || !clientId || !clientSecret) {
