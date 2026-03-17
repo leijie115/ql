@@ -27,6 +27,13 @@ const $ = {
     }),
 };
 
+function sendTG(botToken, chatId, text) {
+    if (!botToken || !chatId) return Promise.resolve();
+    return $.get({
+        url: `https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(text)}&parse_mode=HTML`,
+    }).catch(() => {});
+}
+
 (async () => {
     try {
         const body = JSON.parse($response.body);
@@ -38,10 +45,12 @@ const $ = {
         const token = body.data.token;
         const name = body.data.nickName || '麓豆账号';
 
-        // 从插件 [Argument] 读取青龙配置
+        // 从插件 [Argument] 读取配置
         const qlUrl = $argument.ql_url || '';
         const clientId = $argument.ql_client_id || '';
         const clientSecret = $argument.ql_client_secret || '';
+        const tgBotToken = $argument.tg_bot_token || '';
+        const tgChatId = $argument.tg_chat_id || '';
 
         if (!qlUrl || !clientId || !clientSecret) {
             $.notify('麓豆Token', `${name} 抓取成功`, `请在插件设置中填写青龙参数\nql_url: ${qlUrl || '未填'}`);
@@ -96,7 +105,9 @@ const $ = {
                 headers: authHeaders,
                 body: JSON.stringify({ name: 'LUDOU', value: updatedValue, id: targetEnv.id }),
             });
-            $.notify('麓豆Token', `${name} 更新成功 ✅`, found ? 'token已替换' : '已追加新账号');
+            const msg = found ? 'token已替换' : '已追加新账号';
+            $.notify('麓豆Token', `${name} 更新成功 ✅`, msg);
+            await sendTG(tgBotToken, tgChatId, `麓豆Token: ${name} 更新成功 ✅ ${msg}`);
         } else {
             await $.post({
                 url: `${qlUrl}/open/envs`,
@@ -104,9 +115,11 @@ const $ = {
                 body: JSON.stringify([{ name: 'LUDOU', value: newEntry }]),
             });
             $.notify('麓豆Token', `${name} 新建成功 ✅`, 'LUDOU环境变量已创建');
+            await sendTG(tgBotToken, tgChatId, `麓豆Token: ${name} 新建成功 ✅`);
         }
     } catch (e) {
         $.notify('麓豆Token', '更新失败 ❌', e.message || e);
+        await sendTG(tgBotToken, tgChatId, `麓豆Token 更新失败: ${e.message || e}`);
     }
 
     $.done();
