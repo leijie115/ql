@@ -1,5 +1,5 @@
 #!name=烤匠Token自动更新
-#!desc=自动抓取烤匠小程序qm-user-token并更新到青龙面板环境变量
+#!desc=自动抓取烤匠小程序token并更新到青龙面板环境变量
 #!author=leos
 #!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Cookie.png
 
@@ -11,7 +11,7 @@ tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token(可选)
 tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID(可选)
 
 [Script]
-http-request https://webapi\.qmai\.cn/web/mealmate-apiserver/crm/customer-center script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/kaojiang/kaojiang_token.js, requires-body=false, tag=烤匠Token, argument=[{ql_url},{ql_client_id},{ql_client_secret},{tg_bot_token},{tg_chat_id}]
+http-response https://webapi\.qmai\.cn/web/account-center/oauth/mini-app-login script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/kaojiang/kaojiang_token.js, requires-body=true, tag=烤匠Token, argument=[{ql_url},{ql_client_id},{ql_client_secret},{tg_bot_token},{tg_chat_id}]
 
 [MITM]
 hostname = webapi.qmai.cn
