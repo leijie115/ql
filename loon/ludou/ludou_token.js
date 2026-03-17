@@ -42,7 +42,8 @@ const $ = {
         const name = body.data.nickName || '麓豆账号';
 
         // 从插件argument读取青龙配置
-        const argStr = typeof $argument !== 'undefined' ? $argument : '';
+        const argStr = typeof $argument !== 'undefined' ? String($argument) : '';
+        console.log('麓豆 $argument type: ' + typeof $argument + ', value: ' + argStr);
         const args = argStr.split(',').map(s => s.trim());
         const [qlUrl, clientId, clientSecret] = args;
 
