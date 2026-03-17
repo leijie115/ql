@@ -1,10 +1,13 @@
 /**
  * 麓豆Token自动抓取 → 青龙面板环境变量更新
- *
  * 配合 ludou_token.plugin 使用
- * 插件设置中填写: 青龙面板地址, Client ID, Client Secret
- * 参数通过 $argument 传入，格式: ql_url,ql_client_id,ql_client_secret
  */
+
+// ====== 青龙配置，填写你的信息 ======
+const QL_URL = 'https://ql.leos.cyou';
+const QL_CLIENT_ID = '0h1ZnR57nd_1';
+const QL_CLIENT_SECRET = 'jpgHRZSg_166Ri_UiZr9gppB';
+// ==================================
 
 const $ = {
     notify: (title, subtitle, body) => $notification.post(title, subtitle, body),
@@ -40,23 +43,14 @@ const $ = {
         const token = body.data.token;
         const name = body.data.nickName || '麓豆账号';
 
-        // 从插件[Argument]读取青龙配置
-        const arg = typeof $argument !== 'undefined' ? $argument : {};
-        const keys = Object.keys(arg);
-        $.notify('麓豆Token', `参数调试`, `keys: ${JSON.stringify(keys)}\nvalues: ${JSON.stringify(arg).substring(0, 200)}`);
-
-        const qlUrl = arg.ql_url || '';
-        const clientId = arg.ql_client_id || '';
-        const clientSecret = arg.ql_client_secret || '';
-
-        if (!qlUrl || !clientId || !clientSecret) {
-            $.notify('麓豆Token', `${name} 抓取成功`, `请在插件设置中填写青龙参数\nql_url: ${qlUrl || '未填'}\nToken: ${token.substring(0, 20)}...`);
+        if (!QL_URL || !QL_CLIENT_ID || !QL_CLIENT_SECRET) {
+            $.notify('麓豆Token', `${name} 抓取成功`, `请在脚本中填写青龙配置\nToken: ${token.substring(0, 20)}...`);
             return $.done();
         }
 
         // 1. 获取青龙access_token
         const loginResp = await $.get({
-            url: `${qlUrl}/open/auth/token?client_id=${clientId}&client_secret=${clientSecret}`,
+            url: `${QL_URL}/open/auth/token?client_id=${QL_CLIENT_ID}&client_secret=${QL_CLIENT_SECRET}`,
         });
         const loginData = JSON.parse(loginResp.body);
         if (loginData.code !== 200) {
@@ -68,7 +62,7 @@ const $ = {
 
         // 2. 查找现有LUDOU环境变量
         const envResp = await $.get({
-            url: `${qlUrl}/open/envs?searchValue=LUDOU`,
+            url: `${QL_URL}/open/envs?searchValue=LUDOU`,
             headers: authHeaders,
         });
         const envData = JSON.parse(envResp.body);
@@ -88,14 +82,14 @@ const $ = {
 
             if (targetEnv) {
                 await $.put({
-                    url: `${qlUrl}/open/envs`,
+                    url: `${QL_URL}/open/envs`,
                     headers: authHeaders,
                     body: JSON.stringify({ name: 'LUDOU', value: newValue, id: targetEnv.id }),
                 });
                 $.notify('麓豆Token', `${name} 更新成功 ✅`, 'token已自动更新到青龙面板');
             } else {
                 await $.post({
-                    url: `${qlUrl}/open/envs`,
+                    url: `${QL_URL}/open/envs`,
                     headers: authHeaders,
                     body: JSON.stringify([{ name: 'LUDOU', value: newValue }]),
                 });
@@ -103,7 +97,7 @@ const $ = {
             }
         } else {
             await $.post({
-                url: `${qlUrl}/open/envs`,
+                url: `${QL_URL}/open/envs`,
                 headers: authHeaders,
                 body: JSON.stringify([{ name: 'LUDOU', value: newValue }]),
             });
@@ -111,7 +105,6 @@ const $ = {
         }
     } catch (e) {
         $.notify('麓豆Token', '更新失败 ❌', e.message || e);
-        console.log('麓豆Token错误: ' + (e.message || e));
     }
 
     $.done();
