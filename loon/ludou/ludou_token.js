@@ -40,8 +40,11 @@ const $ = {
         const token = body.data.token;
         const name = body.data.nickName || '麓豆账号';
 
-        // 从插件[Argument]读取青龙配置，$argument是object
+        // 从插件[Argument]读取青龙配置
         const arg = typeof $argument !== 'undefined' ? $argument : {};
+        const keys = Object.keys(arg);
+        $.notify('麓豆Token', `参数调试`, `keys: ${JSON.stringify(keys)}\nvalues: ${JSON.stringify(arg).substring(0, 200)}`);
+
         const qlUrl = arg.ql_url || '';
         const clientId = arg.ql_client_id || '';
         const clientSecret = arg.ql_client_secret || '';
