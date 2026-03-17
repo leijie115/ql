@@ -31,28 +31,23 @@ const $ = {
 
 (async () => {
     try {
-        $.notify('麓豆Token', '脚本触发', '开始解析响应...');
-
         const body = JSON.parse($response.body);
 
         if (body.code !== 200 || !body.data || !body.data.token) {
-            $.notify('麓豆Token', '响应异常', `code: ${body.code}, msg: ${body.message || '无token'}`);
             return $.done();
         }
 
         const token = body.data.token;
         const name = body.data.nickName || '麓豆账号';
 
-        // 从插件argument读取青龙配置
-        const argType = typeof $argument;
-        const argStr = argType !== 'undefined' ? String($argument) : '';
-        $.notify('麓豆Token', `${name} token已抓取`, `argument类型: ${argType}\n值: ${argStr.substring(0, 50)}`);
-        const args = argStr.split(',').map(s => s.trim());
-        const [qlUrl, clientId, clientSecret] = args;
+        // 从插件[Argument]读取青龙配置，$argument是object
+        const arg = typeof $argument !== 'undefined' ? $argument : {};
+        const qlUrl = arg.ql_url || '';
+        const clientId = arg.ql_client_id || '';
+        const clientSecret = arg.ql_client_secret || '';
 
         if (!qlUrl || !clientId || !clientSecret) {
-            $.notify('麓豆Token', `${name} 抓取成功`, `请在插件设置中填写青龙参数\nToken: ${token.substring(0, 20)}...`);
-            console.log('麓豆Token: ' + token);
+            $.notify('麓豆Token', `${name} 抓取成功`, `请在插件设置中填写青龙参数\nql_url: ${qlUrl || '未填'}\nToken: ${token.substring(0, 20)}...`);
             return $.done();
         }
 
