@@ -1,0 +1,14 @@
+#!name=麓豆Token自动更新
+#!desc=自动抓取麓豆小程序token并更新到青龙面板环境变量
+#!author=leos
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Cookie.png
+#!input=ql_url,ql_client_id,ql_client_secret
+#!select=ql_url,placeholder=http://192.168.1.x:5700,description=青龙面板地址
+#!select=ql_client_id,placeholder=Client ID,description=青龙应用Client ID
+#!select=ql_client_secret,placeholder=Client Secret,description=青龙应用Client Secret
+
+[Script]
+http-response https://luhu-beta1-web\.crm\.luxelakes\.com//?v1/user/userInfo script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ludou/ludou_token.js, requires-body=true, tag=麓豆Token, argument=[{ql_url},{ql_client_id},{ql_client_secret}]
+
+[MITM]
+hostname = luhu-beta1-web.crm.luxelakes.com
