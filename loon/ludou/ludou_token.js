@@ -31,10 +31,12 @@ const $ = {
 
 (async () => {
     try {
+        $.notify('麓豆Token', '脚本触发', '开始解析响应...');
+
         const body = JSON.parse($response.body);
 
         if (body.code !== 200 || !body.data || !body.data.token) {
-            console.log('麓豆: 响应中无token，跳过');
+            $.notify('麓豆Token', '响应异常', `code: ${body.code}, msg: ${body.message || '无token'}`);
             return $.done();
         }
 
@@ -42,8 +44,9 @@ const $ = {
         const name = body.data.nickName || '麓豆账号';
 
         // 从插件argument读取青龙配置
-        const argStr = typeof $argument !== 'undefined' ? String($argument) : '';
-        console.log('麓豆 $argument type: ' + typeof $argument + ', value: ' + argStr);
+        const argType = typeof $argument;
+        const argStr = argType !== 'undefined' ? String($argument) : '';
+        $.notify('麓豆Token', `${name} token已抓取`, `argument类型: ${argType}\n值: ${argStr.substring(0, 50)}`);
         const args = argStr.split(',').map(s => s.trim());
         const [qlUrl, clientId, clientSecret] = args;
 
