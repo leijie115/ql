@@ -1,5 +1,5 @@
 /**
- * 麓豆签到
+ * new Env('麓豆签到')
  * cron 35 8 * * *
  * 环境变量: LUDOU  格式: 账号描述#X-Token  多账号用 @ 或换行分隔
  * 示例: 账号1#eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.xxxxx

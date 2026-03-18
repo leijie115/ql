@@ -1,5 +1,5 @@
 /**
- * 水弹签到
+ * new Env('水弹签到')
  * cron 30 8 * * *
  * 环境变量: SDGUN  格式: 账号描述#uid#完整cookie字符串  多账号用 @ 或换行分隔
  * 示例: 账号1#635780#3df5d0fc98d8c119af2e389a3f45b5b0=ec7470d175c5bd16f08431b26606ddfa; PHPSESSID=tgciec4q75imaife292ohp04q7
