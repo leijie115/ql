@@ -4,7 +4,8 @@ cron 30 8 * * *
 示例: 账号1#635780#3df5d0fc98d8c119af2e389a3f45b5b0=ec7470d175c5bd16f08431b26606ddfa; PHPSESSID=tgciec4q75imaife292ohp04q7
 TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
 */
-// new Env('水弹签到');
+function Env(name) { return { name }; }
+const $ = new Env('水弹签到');
 
 const https = require('https');
 const { log } = console;

@@ -4,7 +4,8 @@ cron 35 8 * * *
 示例: 账号1#eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.xxxxx
 TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
 */
-// new Env('麓豆签到');
+function Env(name) { return { name }; }
+const $ = new Env('麓豆签到');
 
 const https = require('https');
 const { log } = console;
