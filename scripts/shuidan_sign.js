@@ -186,4 +186,4 @@ async function sign(name, uid, cookie, index) {
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     log(`\n🔔 ${scriptName}, 结束! 🕛 ${elapsed} 秒`);
-})().catch(e => log(`⚠️ 脚本异常: ${e.message}`));
+})().catch(e => log(`⚠️ 脚本异常: ${e.message}`)).finally(() => process.exit(0));
