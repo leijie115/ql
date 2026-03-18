@@ -1,8 +1,8 @@
 /**
- * 烤匠Token自动抓取 → 青龙面板环境变量更新
- * 从 mini-app-login 响应中获取 token 和 username
- * 环境变量 KAOJIANG 格式: username1#token1\nusername2#token2
- * 配合 kaojiang_token.plugin 使用
+ * 招商蛇口Token自动抓取 → 青龙面板环境变量更新
+ * 从请求体中获取 Token，从响应体中获取 Mobile 和 Bonus
+ * 环境变量 ZHAOSHANGSHEKOU 格式: mobile1#token1\nmobile2#token2
+ * 配合 zhaoshangshekou_token.plugin 使用
  */
 
 const $ = {
@@ -40,14 +40,17 @@ function sendTG(botToken, chatId, text) {
     const tgChatId = $argument.tg_chat_id || '';
 
     try {
-        const body = JSON.parse($response.body);
+        // 从请求体获取 token
+        const reqBody = JSON.parse($request.body);
+        const token = reqBody.Header && reqBody.Header.Token;
+        if (!token) return $.done();
 
-        if (!body.status || !body.data || !body.data.token) {
-            return $.done();
-        }
+        // 从响应体获取 mobile 和积分
+        const resBody = JSON.parse($response.body);
+        if (resBody.m !== 1 || !resBody.d) return $.done();
 
-        const token = body.data.token;
-        const name = (body.data.user && body.data.user.username) || '烤匠账号';
+        const mobile = resBody.d.Mobile || '招商蛇口账号';
+        const bonus = resBody.d.Bonus || 0;
 
         // 从插件 [Argument] 读取配置
         const qlUrl = $argument.ql_url || '';
@@ -71,20 +74,20 @@ function sendTG(botToken, chatId, text) {
                 const authHeaders = { 'Authorization': `Bearer ${qlToken}`, 'Content-Type': 'application/json' };
 
                 const envResp = await $.get({
-                    url: `${qlUrl}/open/envs?searchValue=KAOJIANG`,
+                    url: `${qlUrl}/open/envs?searchValue=ZHAOSHANGSHEKOU`,
                     headers: authHeaders,
                 });
                 const envData = JSON.parse(envResp.body);
                 const envList = envData.data || [];
-                const newEntry = `${name}#${token}`;
-                const targetEnv = envList.find(e => e.name === 'KAOJIANG');
+                const newEntry = `${mobile}#${token}`;
+                const targetEnv = envList.find(e => e.name === 'ZHAOSHANGSHEKOU');
 
                 if (targetEnv) {
                     const lines = targetEnv.value.split('\n').filter(Boolean);
                     let found = false;
                     for (let i = 0; i < lines.length; i++) {
                         const idx = lines[i].indexOf('#');
-                        if (idx > -1 && lines[i].substring(0, idx) === name) {
+                        if (idx > -1 && lines[i].substring(0, idx) === mobile) {
                             lines[i] = newEntry;
                             found = true;
                             break;
@@ -95,27 +98,27 @@ function sendTG(botToken, chatId, text) {
                     await $.put({
                         url: `${qlUrl}/open/envs`,
                         headers: authHeaders,
-                        body: JSON.stringify({ name: 'KAOJIANG', value: lines.join('\n'), id: targetEnv.id }),
+                        body: JSON.stringify({ name: 'ZHAOSHANGSHEKOU', value: lines.join('\n'), id: targetEnv.id }),
                     });
                     qlResult = found ? '青龙token已替换 ✅' : '青龙已追加新账号 ✅';
                 } else {
                     await $.post({
                         url: `${qlUrl}/open/envs`,
                         headers: authHeaders,
-                        body: JSON.stringify([{ name: 'KAOJIANG', value: newEntry }]),
+                        body: JSON.stringify([{ name: 'ZHAOSHANGSHEKOU', value: newEntry }]),
                     });
-                    qlResult = '青龙KAOJIANG环境变量已创建 ✅';
+                    qlResult = '青龙ZHAOSHANGSHEKOU环境变量已创建 ✅';
                 }
             } catch (qlErr) {
                 qlResult = `青龙更新失败: ${qlErr.message || qlErr}`;
             }
         }
 
-        $.notify('烤匠Token', `${name} 抓取成功`, qlResult);
-        await sendTG(tgBotToken, tgChatId, `烤匠Token: ${name}\n${qlResult}\n\nToken: ${token}`);
+        $.notify('招商蛇口Token', `${mobile} 抓取成功`, `积分: ${bonus}\n${qlResult}`);
+        await sendTG(tgBotToken, tgChatId, `招商蛇口Token: ${mobile}\n积分: ${bonus}\n${qlResult}\n\nToken: ${token}`);
     } catch (e) {
-        $.notify('烤匠Token', '脚本异常 ❌', e.message || e);
-        await sendTG(tgBotToken, tgChatId, `烤匠Token 脚本异常: ${e.message || e}`);
+        $.notify('招商蛇口Token', '脚本异常 ❌', e.message || e);
+        await sendTG(tgBotToken, tgChatId, `招商蛇口Token 脚本异常: ${e.message || e}`);
     }
 
     $.done();
