@@ -3,9 +3,8 @@ cron 30 8 * * *
 环境变量: SDGUN  格式: 账号描述#uid#完整cookie字符串  多账号用 @ 或换行分隔
 示例: 账号1##=; PHPSESSID=
 TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
+* new Env('水弹签到')
 */
-const Env = require('./env');
-const $ = new Env('水弹签到');
 
 const https = require('https');
 const { log } = console;
