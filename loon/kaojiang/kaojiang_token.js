@@ -82,22 +82,31 @@ function sendTG(botToken, chatId, text) {
                 if (targetEnv) {
                     const lines = targetEnv.value.split('\n').filter(Boolean);
                     let found = false;
+                    let unchanged = false;
                     for (let i = 0; i < lines.length; i++) {
                         const idx = lines[i].indexOf('#');
                         if (idx > -1 && lines[i].substring(0, idx) === name) {
-                            lines[i] = newEntry;
+                            if (lines[i] === newEntry) {
+                                unchanged = true;
+                            } else {
+                                lines[i] = newEntry;
+                            }
                             found = true;
                             break;
                         }
                     }
-                    if (!found) lines.push(newEntry);
 
-                    await $.put({
-                        url: `${qlUrl}/open/envs`,
-                        headers: authHeaders,
-                        body: JSON.stringify({ name: 'KAOJIANG', value: lines.join('\n'), id: targetEnv.id }),
-                    });
-                    qlResult = found ? '青龙token已替换 ✅' : '青龙已追加新账号 ✅';
+                    if (unchanged) {
+                        qlResult = 'token未变化，跳过更新 ⏭️';
+                    } else {
+                        if (!found) lines.push(newEntry);
+                        await $.put({
+                            url: `${qlUrl}/open/envs`,
+                            headers: authHeaders,
+                            body: JSON.stringify({ name: 'KAOJIANG', value: lines.join('\n'), id: targetEnv.id }),
+                        });
+                        qlResult = found ? '青龙token已替换 ✅' : '青龙已追加新账号 ✅';
+                    }
                 } else {
                     await $.post({
                         url: `${qlUrl}/open/envs`,

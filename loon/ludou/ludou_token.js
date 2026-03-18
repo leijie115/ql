@@ -81,22 +81,31 @@ function sendTG(botToken, chatId, text) {
                 if (targetEnv) {
                     const lines = targetEnv.value.split('\n').filter(Boolean);
                     let found = false;
+                    let unchanged = false;
                     for (let i = 0; i < lines.length; i++) {
                         const idx = lines[i].indexOf('#');
                         if (idx > -1 && lines[i].substring(0, idx) === name) {
-                            lines[i] = newEntry;
+                            if (lines[i] === newEntry) {
+                                unchanged = true;
+                            } else {
+                                lines[i] = newEntry;
+                            }
                             found = true;
                             break;
                         }
                     }
-                    if (!found) lines.push(newEntry);
 
-                    await $.put({
-                        url: `${qlUrl}/open/envs`,
-                        headers: authHeaders,
-                        body: JSON.stringify({ name: 'LUDOU', value: lines.join('\n'), id: targetEnv.id }),
-                    });
-                    qlResult = found ? '青龙token已替换 ✅' : '青龙已追加新账号 ✅';
+                    if (unchanged) {
+                        qlResult = 'token未变化，跳过更新 ⏭️';
+                    } else {
+                        if (!found) lines.push(newEntry);
+                        await $.put({
+                            url: `${qlUrl}/open/envs`,
+                            headers: authHeaders,
+                            body: JSON.stringify({ name: 'LUDOU', value: lines.join('\n'), id: targetEnv.id }),
+                        });
+                        qlResult = found ? '青龙token已替换 ✅' : '青龙已追加新账号 ✅';
+                    }
                 } else {
                     await $.post({
                         url: `${qlUrl}/open/envs`,
@@ -106,25 +115,27 @@ function sendTG(botToken, chatId, text) {
                     qlResult = '青龙LUDOU环境变量已创建 ✅';
                 }
 
-                // 触发青龙签到任务
-                try {
-                    const cronResp = await $.get({
-                        url: `${qlUrl}/open/crons?searchValue=ludou_sign`,
-                        headers: authHeaders,
-                    });
-                    const cronData = JSON.parse(cronResp.body);
-                    const cronList = cronData.data && cronData.data.data || cronData.data || [];
-                    const task = cronList.find(c => c.command && c.command.indexOf('ludou_sign') > -1);
-                    if (task) {
-                        await $.put({
-                            url: `${qlUrl}/open/crons/run`,
+                // token有变化时触发青龙签到任务
+                if (!unchanged) {
+                    try {
+                        const cronResp = await $.get({
+                            url: `${qlUrl}/open/crons?searchValue=ludou_sign`,
                             headers: authHeaders,
-                            body: JSON.stringify([task.id]),
                         });
-                        qlResult += '\n签到任务已触发 🚀';
+                        const cronData = JSON.parse(cronResp.body);
+                        const cronList = cronData.data && cronData.data.data || cronData.data || [];
+                        const task = cronList.find(c => c.command && c.command.indexOf('ludou_sign') > -1);
+                        if (task) {
+                            await $.put({
+                                url: `${qlUrl}/open/crons/run`,
+                                headers: authHeaders,
+                                body: JSON.stringify([task.id]),
+                            });
+                            qlResult += '\n签到任务已触发 🚀';
+                        }
+                    } catch (runErr) {
+                        qlResult += `\n触发签到失败: ${runErr.message || runErr}`;
                     }
-                } catch (runErr) {
-                    qlResult += `\n触发签到失败: ${runErr.message || runErr}`;
                 }
             } catch (qlErr) {
                 qlResult = `青龙更新失败: ${qlErr.message || qlErr}`;
