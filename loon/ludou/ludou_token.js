@@ -105,6 +105,27 @@ function sendTG(botToken, chatId, text) {
                     });
                     qlResult = '青龙LUDOU环境变量已创建 ✅';
                 }
+
+                // 触发青龙签到任务
+                try {
+                    const cronResp = await $.get({
+                        url: `${qlUrl}/open/crons?searchValue=ludou_sign`,
+                        headers: authHeaders,
+                    });
+                    const cronData = JSON.parse(cronResp.body);
+                    const cronList = cronData.data && cronData.data.data || cronData.data || [];
+                    const task = cronList.find(c => c.command && c.command.indexOf('ludou_sign') > -1);
+                    if (task) {
+                        await $.put({
+                            url: `${qlUrl}/open/crons/run`,
+                            headers: authHeaders,
+                            body: JSON.stringify([task.id]),
+                        });
+                        qlResult += '\n签到任务已触发 🚀';
+                    }
+                } catch (runErr) {
+                    qlResult += `\n触发签到失败: ${runErr.message || runErr}`;
+                }
             } catch (qlErr) {
                 qlResult = `青龙更新失败: ${qlErr.message || qlErr}`;
             }

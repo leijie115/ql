@@ -133,10 +133,39 @@ async function doSign(name, xToken, index) {
     let msg = '';
 
     try {
-        // 1. 签到
+        log(`======== 【${index}】 ${name} ========`);
+
+        // 1. 先查询签到概况，判断今天是否已签到
+        const summaryUrl = 'https://luhu-beta1-web.crm.luxelakes.com//v1/user-task/signIn/mb/user-sign-in/basic-summary?city=510100&secretKey=';
+        const summaryResult = await httpGet(summaryUrl, headers);
+
+        if (!summaryResult.success || !summaryResult.data) {
+            msg = `⚠️ ${name} 查询签到概况失败: ${summaryResult.message || JSON.stringify(summaryResult)}`;
+            log(msg);
+            await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+            return;
+        }
+
+        const d = summaryResult.data;
+        const today = new Date().toISOString().slice(0, 10);
+        const todayRecord = (d.signInRecords || []).find(r => r.date && r.date.startsWith(today));
+
+        if (todayRecord && todayRecord.signInStatus) {
+            msg = `ℹ️ ${name} 今天已签到，跳过`;
+            msg += `\n累计签到: ${d.totalCumulativeDays}天, 本月: ${d.cumulativeDays}天`;
+            if (d.cumulativeTaskRule) {
+                msg += `\n${d.cumulativeTaskRule}`;
+            }
+            log(msg);
+            await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+            return;
+        }
+
+        await wait(1000);
+
+        // 2. 未签到，执行签到
         const signUrl = 'https://luhu-beta1-web.crm.luxelakes.com//v1/user-task/signIn/mb/signIn?city=510100&secretKey=';
         const signResult = await httpGet(signUrl, headers);
-        log(`======== 【${index}】 ${name} ========`);
 
         if (signResult.success && signResult.data && signResult.data.success) {
             msg = `✅ ${name} 签到成功! 获得 ${signResult.data.rewardLdCount} 麓豆`;
@@ -149,15 +178,13 @@ async function doSign(name, xToken, index) {
 
         await wait(1000);
 
-        // 2. 查询签到概况
-        const summaryUrl = 'https://luhu-beta1-web.crm.luxelakes.com//v1/user-task/signIn/mb/user-sign-in/basic-summary?city=510100&secretKey=';
-        const summaryResult = await httpGet(summaryUrl, headers);
-
-        if (summaryResult.success && summaryResult.data) {
-            const d = summaryResult.data;
-            msg += `\n累计签到: ${d.totalCumulativeDays}天, 本月: ${d.cumulativeDays}天`;
-            if (d.cumulativeTaskRule) {
-                msg += `\n${d.cumulativeTaskRule}`;
+        // 3. 重新查询签到概况
+        const summaryResult2 = await httpGet(summaryUrl, headers);
+        if (summaryResult2.success && summaryResult2.data) {
+            const d2 = summaryResult2.data;
+            msg += `\n累计签到: ${d2.totalCumulativeDays}天, 本月: ${d2.cumulativeDays}天`;
+            if (d2.cumulativeTaskRule) {
+                msg += `\n${d2.cumulativeTaskRule}`;
             }
         }
     } catch (e) {
