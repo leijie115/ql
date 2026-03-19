@@ -147,9 +147,10 @@ async function doSign(name, xToken, index) {
         }
 
         const d = summaryResult.data;
-        const today = new Date().toISOString().slice(0, 10);
+        const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
         const todayRecord = (d.signInRecords || []).find(r => r.date && r.date.startsWith(today));
 
+        log(`今日日期: ${today}, 匹配记录: ${JSON.stringify(todayRecord)}`);
         if (todayRecord && todayRecord.signInStatus) {
             msg = `ℹ️ ${name} 今天已签到，跳过`;
             msg += `\n累计签到: ${d.totalCumulativeDays}天, 本月: ${d.cumulativeDays}天`;
