@@ -81,11 +81,11 @@ function sendTG(botToken, chatId, text) {
                 const envList = envData.data || [];
                 const newEntry = `${mobile}#${token}`;
                 const targetEnv = envList.find(e => e.name === 'ZHAOSHANGSHEKOU');
+                let unchanged = false;
 
                 if (targetEnv) {
                     const lines = targetEnv.value.split('\n').filter(Boolean);
                     let found = false;
-                    let unchanged = false;
                     for (let i = 0; i < lines.length; i++) {
                         const idx = lines[i].indexOf('#');
                         if (idx > -1 && lines[i].substring(0, idx) === mobile) {
