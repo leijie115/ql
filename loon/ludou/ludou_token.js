@@ -157,8 +157,7 @@ function sendTG(botToken, chatId, text) {
         }
 
         $.notify('麓豆Token', `${name} 抓取成功`, qlResult);
-        const shortToken = token.length > 30 ? token.substring(0, 15) + '...' + token.slice(-10) : token;
-        await sendTG(tgBotToken, tgChatId, `麓豆Token: ${name}\n${qlResult}\n\nToken: <code>${shortToken}</code>`);
+        await sendTG(tgBotToken, tgChatId, `麓豆Token: ${name}\n${qlResult}\n\nToken👇\n<pre>${token}</pre>`);
     } catch (e) {
         $.notify('麓豆Token', '脚本异常 ❌', e.message || e);
         await sendTG(tgBotToken, tgChatId, `麓豆Token 脚本异常: ${e.message || e}`);
