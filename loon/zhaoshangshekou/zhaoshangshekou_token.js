@@ -124,7 +124,8 @@ function sendTG(botToken, chatId, text) {
         }
 
         $.notify('招商蛇口Token', `${mobile} 抓取成功`, `积分: ${bonus}\n${qlResult}`);
-        await sendTG(tgBotToken, tgChatId, `招商蛇口Token: ${mobile}\n积分: ${bonus}\n${qlResult}\n\nToken: ${token}`);
+        const shortToken = token.length > 30 ? token.substring(0, 15) + '...' + token.slice(-10) : token;
+        await sendTG(tgBotToken, tgChatId, `招商蛇口Token: ${mobile}\n积分: ${bonus}\n${qlResult}\n\nToken: ${shortToken}\n<tg-spoiler><code>${token}</code></tg-spoiler>`);
     } catch (e) {
         $.notify('招商蛇口Token', '脚本异常 ❌', e.message || e);
         await sendTG(tgBotToken, tgChatId, `招商蛇口Token 脚本异常: ${e.message || e}`);
