@@ -7,6 +7,8 @@ TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
 */
 
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const { log } = console;
 
 const scriptName = '麓豆签到';
@@ -94,6 +96,35 @@ function getTokens(envName, splitors = ['@', '\n']) {
     return tokens;
 }
 
+// ============ 已签到通知去重 ============
+
+const NOTIFIED_FILE = path.join(__dirname, '.ludou_notified.json');
+
+function loadNotified() {
+    try {
+        const data = JSON.parse(fs.readFileSync(NOTIFIED_FILE, 'utf8'));
+        const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        if (data.date === today) return data;
+        return { date: today, accounts: [] };
+    } catch {
+        const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        return { date: today, accounts: [] };
+    }
+}
+
+function markNotified(name) {
+    const data = loadNotified();
+    if (!data.accounts.includes(name)) {
+        data.accounts.push(name);
+    }
+    fs.writeFileSync(NOTIFIED_FILE, JSON.stringify(data));
+}
+
+function alreadyNotified(name) {
+    const data = loadNotified();
+    return data.accounts.includes(name);
+}
+
 // ============ Token检查 ============
 
 function checkTokenExpiry(xToken, name) {
@@ -158,7 +189,12 @@ async function doSign(name, xToken, index) {
                 msg += `\n${d.cumulativeTaskRule}`;
             }
             log(msg);
-            await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+            if (!alreadyNotified(name)) {
+                await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+                markNotified(name);
+            } else {
+                log(`(今日已通知过，不再发送TG)`);
+            }
             return;
         }
 
