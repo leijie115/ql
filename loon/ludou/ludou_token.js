@@ -53,9 +53,18 @@ function sendTG(botToken, chatId, text) {
         const clientId = $argument.ql_client_id || '';
         const clientSecret = $argument.ql_client_secret || '';
 
+        // 检查今天是否已同步过青龙
+        const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+        let syncRecord = {};
+        try { syncRecord = JSON.parse($persistentStore.read('ludou_ql_synced') || '{}'); } catch {}
+        if (syncRecord.date !== todayStr) syncRecord = { date: todayStr, accounts: [] };
+        const alreadySynced = syncRecord.accounts.includes(name);
+
         // 更新青龙环境变量
         let qlResult = '';
-        if (!qlUrl || !clientId || !clientSecret) {
+        if (alreadySynced) {
+            qlResult = '今日已同步过青龙，跳过 ⏭️';
+        } else if (!qlUrl || !clientId || !clientSecret) {
             qlResult = '青龙参数未填写，跳过更新';
         } else {
             try {
@@ -136,6 +145,11 @@ function sendTG(botToken, chatId, text) {
                     } catch (runErr) {
                         qlResult += `\n触发签到失败: ${runErr.message || runErr}`;
                     }
+                }
+                // 记录今日已同步
+                if (!syncRecord.accounts.includes(name)) {
+                    syncRecord.accounts.push(name);
+                    $persistentStore.write(JSON.stringify(syncRecord), 'ludou_ql_synced');
                 }
             } catch (qlErr) {
                 qlResult = `青龙更新失败: ${qlErr.message || qlErr}`;

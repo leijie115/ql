@@ -215,7 +215,18 @@ async function doSign(name, xToken, index) {
 
         await wait(1000);
 
-        // 3. 重新查询签到概况
+        // 3. 查询当前麓豆余额
+        try {
+            const assetsUrl = 'https://luhu-beta1-web.crm.luxelakes.com//v1/user/assets?city=510100&secretKey=';
+            const assets = await httpGet(assetsUrl, headers);
+            if (assets.success && assets.data && assets.data.ludou != null) {
+                msg += `\n当前麓豆: ${assets.data.ludou}`;
+            }
+        } catch {}
+
+        await wait(1000);
+
+        // 4. 重新查询签到概况
         const summaryResult2 = await httpGet(summaryUrl, headers);
         if (summaryResult2.success && summaryResult2.data) {
             const d2 = summaryResult2.data;
