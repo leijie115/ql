@@ -9,7 +9,7 @@ tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token（可选）
 tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID（可选）
 
 [Script]
-http-response ^https://api5\.pipix\.com/bds/feed/stream script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js,requires-body=true,timeout=60,tag=ppx_feed,argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-response ^https://api5[^.]*\.pipix\.com/bds/feed/stream script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js,requires-body=true,timeout=60,tag=ppx_feed,argument=[{server_url},{tg_bot_token},{tg_chat_id}]
 
 [MITM]
-hostname = api5.pipix.com
+hostname = api5.pipix.com, api5-lf.pipix.com, api5-hl.pipix.com
