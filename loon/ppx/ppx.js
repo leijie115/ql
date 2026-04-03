@@ -53,8 +53,10 @@ function sendTG(botToken, chatId, text) {
 
     const items = (feedData.data && feedData.data.data) || [];
 
-    // 调试：显示数据量
-    $.notify('皮皮虾', '数据解析 ✅', `共 ${items.length} 条，符合条件 ${items.filter(cell => cell.cell_type === 1 && cell.item && cell.item.stats && cell.item.stats.comment_count > 5 && cell.item.note && cell.item.note.multi_image && cell.item.note.multi_image.length > 0).length} 条`);
+    // 调试：显示数据量并发送TG
+    const debugItems = items.map(cell => `type=${cell.cell_type} id=${cell.cell_id_str} comment=${cell.item && cell.item.stats ? cell.item.stats.comment_count : '?'} multi_image=${cell.item && cell.item.note && cell.item.note.multi_image ? cell.item.note.multi_image.length : '?'}`).join('\n');
+    $.notify('皮皮虾', '数据解析 ✅', `共 ${items.length} 条`);
+    await sendTG(tgBotToken, tgChatId, `皮皮虾 items调试 共${items.length}条:\n${debugItems}`);
 
     // 只处理：图文帖(cell_type=1)、有多图、评论数 > 5
     const targets = items.filter(
