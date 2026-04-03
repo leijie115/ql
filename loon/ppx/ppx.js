@@ -33,6 +33,9 @@ function sendTG(botToken, chatId, text) {
   const tgBotToken = $argument.tg_bot_token || '';
   const tgChatId = $argument.tg_chat_id || '';
 
+  // 调试：确认脚本被触发
+  $.notify('皮皮虾', '脚本触发 ✅', `serverUrl=${serverUrl}`);
+
   if (!serverUrl) {
     $.notify('皮皮虾', '配置缺失 ❌', '请在插件参数中填写服务器地址');
     return $.done();
@@ -49,6 +52,9 @@ function sendTG(botToken, chatId, text) {
     const versionCode = (reqUrl.match(/version_code=([^&]+)/) || [])[1] || '';
 
     const items = (feedData.data && feedData.data.data) || [];
+
+    // 调试：显示数据量
+    $.notify('皮皮虾', '数据解析 ✅', `共 ${items.length} 条，符合条件 ${items.filter(cell => cell.cell_type === 1 && cell.item && cell.item.stats && cell.item.stats.comment_count > 5 && cell.item.note && cell.item.note.multi_image && cell.item.note.multi_image.length > 0).length} 条`);
 
     // 只处理：图文帖(cell_type=1)、有多图、评论数 > 5
     const targets = items.filter(
