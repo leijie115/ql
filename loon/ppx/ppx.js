@@ -95,7 +95,10 @@ function sendTG(botToken, chatId, text) {
           }))
           .filter((c) => c.text && c.text.indexOf('type=1') === -1);
 
-        if (comments.length < 5) continue;
+        if (comments.length < 5) {
+          $.notify('皮皮虾', '评论不足', `cell=${cell.cell_id_str} cellComments=${cellComments.length} filtered=${comments.length} raw=${commentResp.body.substring(0, 100)}`);
+          continue;
+        }
 
         const images = item.note.multi_image.map((m) => ({
           url:
