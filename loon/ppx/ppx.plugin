@@ -1,0 +1,15 @@
+#!name=皮皮虾Feed抓取
+#!desc=拦截皮皮虾推荐流，自动获取评论并上报到本地服务器
+#!author=leos
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Cookie.png
+
+[Argument]
+server_url = input,"",tag=服务器地址,desc=如 http://192.168.1.100:23241
+tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token（可选）
+tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID（可选）
+
+[Script]
+http-response ^https://api5\.pipix\.com/bds/feed/stream script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js,requires-body=true,timeout=60,tag=ppx_feed,argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+
+[MITM]
+hostname = api5.pipix.com
