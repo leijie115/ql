@@ -100,9 +100,12 @@ function sendTG(botToken, chatId, text) {
         const images = item.note.multi_image.map((m) => ({
           url:
             (m.download_list && m.download_list[0] && m.download_list[0].url) ||
-            m.url_list[0].url,
+            (m.url_list && m.url_list[0] && m.url_list[0].url) ||
+            '',
           is_gif: m.is_gif,
-        }));
+        })).filter((m) => m.url);
+
+        $.notify('皮皮虾', 'images调试', `第一条url前50: ${images[0] ? images[0].url.substring(0, 50) : '空'}`);
 
         await $.post({
           url: serverUrl + '/collect',
