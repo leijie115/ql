@@ -1,5 +1,5 @@
 /*
-cron: 35 8 * * *
+cron: 55 7 * * *
 环境变量: LUDOU  格式: 账号描述#X-Token  多账号用 @ 或换行分隔
 示例: 账号1#eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.xxxxx
 TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
