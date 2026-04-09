@@ -30,7 +30,7 @@ const $ = {
 function parseArgument(arg) {
     const result = {};
     if (!arg) return result;
-    const pairs = arg.split(',');
+    const pairs = arg.split('|');
     const keys = ['ql_url', 'ql_client_id', 'ql_client_secret', 'tg_bot_token', 'tg_chat_id'];
     keys.forEach((key, i) => {
         result[key] = (pairs[i] || '').trim();
