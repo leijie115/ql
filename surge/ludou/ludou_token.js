@@ -46,6 +46,8 @@ function sendTG(botToken, chatId, text) {
 }
 
 (async () => {
+    $.notify('麓豆Token', '脚本已触发 🔔', `argument: ${$argument || '无'}`);
+
     const args = parseArgument($argument);
     const tgBotToken = args.tg_bot_token || '';
     const tgChatId = args.tg_chat_id || '';
