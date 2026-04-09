@@ -2,11 +2,11 @@
 #!desc=自动抓取麓豆小程序token并更新到青龙面板环境变量
 #!author=leos
 #!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Cookie.png
-#!arguments=ql_url:,ql_client_id:,ql_client_secret:,tg_bot_token:,tg_chat_id:
-#!arguments-desc=ql_url: 青龙面板地址(如 https://ql.example.com)\nql_client_id: 青龙应用Client ID\nql_client_secret: 青龙应用Client Secret\ntg_bot_token: Telegram Bot Token(可选)\ntg_chat_id: Telegram Chat ID(可选)
+#!arguments=qlurl:,qlclientid:,qlclientsecret:,tgbottoken:,tgchatid:
+#!arguments-desc=qlurl: 青龙面板地址(如 https://ql.example.com)\nqlclientid: 青龙应用Client ID\nqlclientsecret: 青龙应用Client Secret\ntgbottoken: Telegram Bot Token(可选)\ntgchatid: Telegram Chat ID(可选)
 
 [Script]
-麓豆Token = type=http-response, pattern=^https://luhu-beta1-web\.crm\.luxelakes\.com//?v1/user/userInfo, requires-body=1, max-size=0, script-path=https://raw.githubusercontent.com/leijie115/ql/main/surge/ludou/ludou_token.js, argument=[{{{ql_url}}},{{{ql_client_id}}},{{{ql_client_secret}}},{{{tg_bot_token}}},{{{tg_chat_id}}}]
+麓豆Token = type=http-response, pattern=^https://luhu-beta1-web\.crm\.luxelakes\.com//?v1/user/userInfo, requires-body=1, max-size=0, script-path=https://raw.githubusercontent.com/leijie115/ql/main/surge/ludou/ludou_token.js, argument={{{qlurl}}},{{{qlclientid}}},{{{qlclientsecret}}},{{{tgbottoken}}},{{{tgchatid}}}
 
 [MITM]
 hostname = %APPEND% luhu-beta1-web.crm.luxelakes.com
