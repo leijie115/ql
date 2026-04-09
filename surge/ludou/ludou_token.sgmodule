@@ -9,4 +9,4 @@
 麓豆Token = type=http-response,pattern=^https://luhu-beta1-web\.crm\.luxelakes\.com//?v1/user/userInfo,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/leijie115/ql/main/surge/ludou/ludou_token.js,argument={{{qlurl}}},{{{qlclientid}}},{{{qlclientsecret}}},{{{tgbottoken}}},{{{tgchatid}}}
 
 [MITM]
-hostname = %APPEND% luhu-beta1-web.crm.luxelakes.com
+hostname = luhu-beta1-web.crm.luxelakes.com
