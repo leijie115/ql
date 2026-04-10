@@ -14,11 +14,11 @@
 ^https?:\/\/[a-zA-Z0-9_.-]+\.taobao\.com\/gw\/mtop\.cainiao\.nbmensa\.research\.researchservice\.consultmerge - reject-200
 
 [Script]
-菜鸟_amdc处理 = type=http-response,pattern=^http:\/\/amdc\.m\.taobao\.com,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/ddgksf2013/Scripts/refs/heads/master/amdc.js
-菜鸟_我的页面去推广 = type=http-response,pattern=^https?:\/\/[a-zA-Z0-9_.-]+\.cainiao\.com\/gw\/mtop\.cainiao\.app\.e2e\.engine\.page\.fetch,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/ddgksf2013/Scripts/refs/heads/master/cainiao_json.js
-菜鸟_首页问邻居推广 = type=http-response,pattern=^https?:\/\/[a-zA-Z0-9_.-]+\.cainiao\.com\/gw\/mtop\.cainiao\.nbpresentation\.homepage\.merge\.get\.cn,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/ddgksf2013/Scripts/refs/heads/master/cainiao_json.js
-菜鸟_首页惊喜福利推广 = type=http-response,pattern=^https?:\/\/[a-zA-Z0-9_.-]+\.cainiao\.com\/gw\/mtop\.cainiao\.nbpresentation\.protocol\.homepage\.get\.cn,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/ddgksf2013/Scripts/refs/heads/master/cainiao_json.js
-菜鸟_搜索框今日好物 = type=http-response,pattern=^https?:\/\/[a-zA-Z0-9_.-]+\.cainiao\.com\/gw\/mtop\.cainiao\.adkeyword,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/ddgksf2013/Scripts/refs/heads/master/cainiao_json.js
+菜鸟_amdc处理 = type=http-response,pattern=^http:\/\/amdc\.m\.taobao\.com,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/leijie115/ql/main/surge/adblock/cainiao/amdc.js
+菜鸟_我的页面去推广 = type=http-response,pattern=^https?:\/\/[a-zA-Z0-9_.-]+\.cainiao\.com\/gw\/mtop\.cainiao\.app\.e2e\.engine\.page\.fetch,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/leijie115/ql/main/surge/adblock/cainiao/cainiao_json.js
+菜鸟_首页问邻居推广 = type=http-response,pattern=^https?:\/\/[a-zA-Z0-9_.-]+\.cainiao\.com\/gw\/mtop\.cainiao\.nbpresentation\.homepage\.merge\.get\.cn,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/leijie115/ql/main/surge/adblock/cainiao/cainiao_json.js
+菜鸟_首页惊喜福利推广 = type=http-response,pattern=^https?:\/\/[a-zA-Z0-9_.-]+\.cainiao\.com\/gw\/mtop\.cainiao\.nbpresentation\.protocol\.homepage\.get\.cn,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/leijie115/ql/main/surge/adblock/cainiao/cainiao_json.js
+菜鸟_搜索框今日好物 = type=http-response,pattern=^https?:\/\/[a-zA-Z0-9_.-]+\.cainiao\.com\/gw\/mtop\.cainiao\.adkeyword,requires-body=1,max-size=0,script-path=https://raw.githubusercontent.com/leijie115/ql/main/surge/adblock/cainiao/cainiao_json.js
 
 [MITM]
 hostname = %APPEND% *.cainiao.com, guide-acs.m.taobao.com, acs4miniapp-inner.m.taobao.com, amdc.m.taobao.com
