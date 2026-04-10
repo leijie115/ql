@@ -7,10 +7,13 @@
 > 特别提醒：如需转载请注明出处，谢谢合作！
 ***********************************************/
 
-
-
 const version = 'V1.0.11';
 
+const ua = $request.headers["User-Agent"] || $request.headers["user-agent"];
+const pattern = /(AMap|Cainiao|%E9%97%B2%E9%B1%BC|%E9%A3%9E%E7%8C%AA%E6%97%85%E8%A1%8C|%E5%96%B5%E8%A1%97|%E5%A4%A9%E7%8C%AB|Alibaba|MovieApp|Hema4iPhone|Moon|DMPortal)/;
 
-
-var ua=$request.headers["User-Agent"]||$request.headers["user-agent"];/(AMap|Cainiao|%E9%97%B2%E9%B1%BC|%E9%A3%9E%E7%8C%AA%E6%97%85%E8%A1%8C|%E5%96%B5%E8%A1%97|%E5%A4%A9%E7%8C%AB|Alibaba|MovieApp|Hema4iPhone|Moon|DMPortal)/.test(ua)?$done({body:"ddgksf2013"}):$done({});
+if (pattern.test(ua)) {
+    $done({ body: "ddgksf2013" });
+} else {
+    $done({});
+}
