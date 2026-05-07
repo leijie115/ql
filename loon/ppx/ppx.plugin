@@ -21,5 +21,9 @@ http-request ^https?:\/\/[^\/]*\.snssdk\.com\/ script-path=https://raw.githubuse
 http-response ^https?:\/\/[^\/]*\.snssdk\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-4, requires-body=true, timeout=60, tag=ppx_snssdk_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
 http-request ^https?:\/\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-4, timeout=60, tag=ppx_super_probe, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
 
+[Rule]
+AND,((DOMAIN-SUFFIX,pipix.com),(PROTOCOL,QUIC)),REJECT
+AND,((DOMAIN-SUFFIX,pipix.com),(PROTOCOL,UDP),(DEST-PORT,443)),REJECT
+
 [MITM]
 hostname = api5.pipix.com, api5-lf.pipix.com, api5-hl.pipix.com, *.pipix.com, *.snssdk.com, neverssl.com
