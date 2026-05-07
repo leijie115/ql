@@ -1,8 +1,12 @@
 /**
- * 皮皮虾 Feed 数据抓取
- * 拦截推荐流接口，自动拉取评论，上报到本地 ppx 服务器
+ * 皮皮虾数据抓取
+ * - 拦截推荐流接口，尝试上报 feed 中已携带的热评
+ * - 拦截评论接口，使用 App 真实返回的评论数据上报到本地 ppx 服务器
  * 配合 ppx.plugin 使用，参数通过 [Argument] 配置
  */
+
+const MIN_COMMENTS = 5;
+const MAX_ACTIVE_COMMENT_REQUESTS = 5;
 
 const $ = {
   notify: (title, subtitle, body) => $notification.post(title, subtitle, body),
@@ -21,121 +25,438 @@ const $ = {
     ),
 };
 
+function readArgs() {
+  if (typeof $argument === 'object' && $argument) {
+    if (Array.isArray($argument)) {
+      return {
+        server_url: $argument[0] || '',
+        tg_bot_token: $argument[1] || '',
+        tg_chat_id: $argument[2] || '',
+      };
+    }
+    return $argument;
+  }
+  if (typeof $argument !== 'string') return {};
+
+  try {
+    const parsed = JSON.parse($argument);
+    if (Array.isArray(parsed)) {
+      return {
+        server_url: parsed[0] || '',
+        tg_bot_token: parsed[1] || '',
+        tg_chat_id: parsed[2] || '',
+      };
+    }
+    return parsed || {};
+  } catch (_) {}
+
+  const bracketMatch = $argument.match(/^\[(.*)\]$/);
+  if (bracketMatch) {
+    const parts = bracketMatch[1].split(',').map((part) => part.trim());
+    return {
+      server_url: parts[0] || '',
+      tg_bot_token: parts[1] || '',
+      tg_chat_id: parts[2] || '',
+    };
+  }
+
+  return $argument.split('&').reduce((args, part) => {
+    const index = part.indexOf('=');
+    if (index === -1) return args;
+    const key = decodeURIComponent(part.slice(0, index));
+    const value = decodeURIComponent(part.slice(index + 1));
+    args[key] = value;
+    return args;
+  }, {});
+}
+
 function sendTG(botToken, chatId, text) {
-  if (!botToken || !chatId) return Promise.resolve();
+  if (!botToken || !chatId || !text) return Promise.resolve();
   return $.get({
     url: `https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(text)}&parse_mode=HTML`,
   }).catch(() => {});
 }
 
-(async () => {
-  const serverUrl = $argument.server_url || '';
-  const tgBotToken = $argument.tg_bot_token || '';
-  const tgChatId = $argument.tg_chat_id || '';
+function getParam(url, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = url.match(new RegExp(`[?&]${escaped}=([^&]+)`));
+  return match ? decodeURIComponent(match[1]) : '';
+}
 
-  // 调试：确认脚本被触发
-  $.notify('皮皮虾', '脚本触发 ✅', `serverUrl=${serverUrl}`);
+function parseQuery(url) {
+  const queryIndex = url.indexOf('?');
+  if (queryIndex === -1) return {};
+
+  const hashIndex = url.indexOf('#', queryIndex);
+  const query = url.slice(queryIndex + 1, hashIndex === -1 ? undefined : hashIndex);
+  return query.split('&').reduce((params, part) => {
+    if (!part) return params;
+    const index = part.indexOf('=');
+    const key = decodeURIComponent(index === -1 ? part : part.slice(0, index));
+    const value = decodeURIComponent(index === -1 ? '' : part.slice(index + 1));
+    params[key] = value;
+    return params;
+  }, {});
+}
+
+function buildQuery(params) {
+  return Object.keys(params)
+    .filter((key) => params[key] !== undefined && params[key] !== null && params[key] !== '')
+    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(String(params[key]))}`)
+    .join('&');
+}
+
+function originOf(url) {
+  const match = String(url || '').match(/^https?:\/\/[^/?#]+/);
+  return match ? match[0] : 'https://api5-lf.pipix.com';
+}
+
+function hostOf(url) {
+  return originOf(url).replace(/^https?:\/\//, '');
+}
+
+function buildCommentUrl(feedUrl, itemId, cellType) {
+  const params = parseQuery(feedUrl);
+  params.offset = '0';
+  params.cell_type = String(cellType || 1);
+  params.api_version = '1';
+  params.cell_id = String(itemId);
+
+  return `${originOf(feedUrl)}/bds/cell/cell_comment/?${buildQuery(params)}`;
+}
+
+function buildCommentHeaders(headers, targetUrl, stripSignatures) {
+  const bodyHeaders = {
+    'content-length': true,
+    'content-type': true,
+    'x-ss-stub': true,
+  };
+  const signHeaders = {
+    'x-argus': true,
+    'x-gorgon': true,
+    'x-helios': true,
+    'x-khronos': true,
+    'x-ladon': true,
+    'x-medusa': true,
+    'x-tt-trace-id': true,
+    'tt-request-time': true,
+  };
+  const nextHeaders = {};
+
+  Object.keys(headers || {}).forEach((key) => {
+    const lower = key.toLowerCase();
+    if (bodyHeaders[lower]) return;
+    if (stripSignatures && signHeaders[lower]) return;
+
+    nextHeaders[key] = lower === 'host' ? hostOf(targetUrl) : headers[key];
+  });
+
+  return nextHeaders;
+}
+
+function firstUrl(image) {
+  if (!image) return '';
+  const downloadList = image.download_list || [];
+  const urlList = image.url_list || [];
+  return (
+    (downloadList[0] && downloadList[0].url) ||
+    (urlList[0] && urlList[0].url) ||
+    image.url ||
+    ''
+  );
+}
+
+function extractImages(item) {
+  const note = (item && item.note) || {};
+  const multiImage = note.multi_image || [];
+  const images = multiImage
+    .map((image) => ({
+      url: firstUrl(image),
+      is_gif: !!image.is_gif,
+    }))
+    .filter((image) => image.url);
+
+  if (images.length > 0) return images;
+
+  const coverUrl = firstUrl(item && item.cover);
+  return coverUrl ? [{ url: coverUrl, is_gif: !!(item && item.cover && item.cover.is_gif) }] : [];
+}
+
+function cleanText(text) {
+  return String(text || '')
+    .replace(/\[b[^\]]*\]/g, '')
+    .replace(/\[\/b\]/g, '')
+    .trim();
+}
+
+function extractComments(cellsOrComments) {
+  const seen = {};
+  const comments = [];
+
+  (cellsOrComments || []).forEach((cell) => {
+    const info = cell && (cell.comment_info || cell);
+    if (!info) return;
+
+    const text = cleanText(info.text || info.content);
+    const id = String(info.comment_id_str || info.comment_id || cell.cell_id_str || cell.cell_id || '');
+    if (!text || seen[id || text]) return;
+    if (text.indexOf('type=1') !== -1) return;
+
+    seen[id || text] = true;
+    comments.push({ id, text });
+  });
+
+  return comments;
+}
+
+function extractItemFromComments(cellComments) {
+  for (const cell of cellComments || []) {
+    const info = cell && cell.comment_info;
+    if (info && info.item) return info.item;
+  }
+  return null;
+}
+
+function itemIdOf(item) {
+  return String((item && (item.item_id_str || item.item_id)) || '');
+}
+
+function commentItemIdOf(cell) {
+  const info = cell && (cell.comment_info || cell);
+  if (!info) return '';
+
+  return String(
+    itemIdOf(info.item) ||
+      info.item_id_str ||
+      info.item_id ||
+      info.root_cell_id_str ||
+      info.root_cell_id ||
+      ''
+  );
+}
+
+function buildPayload(item, comments, source) {
+  const note = (item && item.note) || {};
+  return {
+    item_id: itemIdOf(item),
+    title: cleanText(note.title || note.text || (item && item.content)),
+    images: extractImages(item),
+    comments,
+    source,
+  };
+}
+
+async function collect(serverUrl, payload) {
+  const resp = await $.post({
+    url: serverUrl.replace(/\/+$/, '') + '/collect',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (resp.status < 200 || resp.status >= 300) {
+    throw new Error(`collect status=${resp.status} body=${String(resp.body || '').slice(0, 120)}`);
+  }
+}
+
+async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType) {
+  const url = buildCommentUrl(feedUrl, itemId, cellType);
+  const attempts = [
+    { name: 'clean', headers: buildCommentHeaders(reqHeaders, url, true) },
+    { name: 'fallback', headers: buildCommentHeaders(reqHeaders, url, false) },
+  ];
+  let lastError = '';
+
+  for (const attempt of attempts) {
+    try {
+      const resp = await $.get({ url, headers: attempt.headers });
+      if (resp.status < 200 || resp.status >= 300) {
+        throw new Error(`status=${resp.status}`);
+      }
+
+      const data = JSON.parse(resp.body || '{}');
+      if (data.status_code !== undefined && data.status_code !== 0) {
+        throw new Error(`code=${data.status_code} message=${data.message || ''}`);
+      }
+
+      return { data, url, mode: attempt.name };
+    } catch (e) {
+      lastError = `${attempt.name}: ${e && e.message ? e.message : e}`;
+      console.log(`[PPX] comment fetch ${itemId} ${lastError}`);
+    }
+  }
+
+  throw new Error(lastError || 'comment fetch failed');
+}
+
+async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
+  const items = (feedData.data && feedData.data.data) || [];
+  const itemById = {};
+  const cellTypeById = {};
+  const commentsByItemId = {};
+  let commentCellCount = 0;
+
+  function addComments(itemId, comments) {
+    if (!itemId || !comments || comments.length === 0) return;
+    commentsByItemId[itemId] = (commentsByItemId[itemId] || []).concat(comments);
+  }
+
+  for (const cell of items) {
+    const item = cell && cell.item;
+    if (item && cell.cell_type === 1) {
+      const id = itemIdOf(item) || String(cell.cell_id_str || cell.cell_id || '');
+      if (id) itemById[id] = item;
+      if (id) cellTypeById[id] = cell.cell_type || item.item_cell_type || item.item_type || 1;
+      addComments(id, item.comments || []);
+      continue;
+    }
+
+    if (cell && cell.comment_info) {
+      commentCellCount++;
+      const id = commentItemIdOf(cell);
+      if (id && !itemById[id] && cell.comment_info.item) {
+        itemById[id] = cell.comment_info.item;
+      }
+      if (id && !cellTypeById[id]) {
+        cellTypeById[id] = cell.comment_info.root_cell_type || 1;
+      }
+      addComments(id, [cell]);
+    }
+  }
+
+  let successCount = 0;
+  let candidateCount = 0;
+  let activeTried = 0;
+  let activeFetched = 0;
+  let activeFailed = 0;
+  const activeTargets = [];
+
+  for (const id in itemById) {
+    const item = itemById[id];
+    const images = extractImages(item);
+    const comments = extractComments(commentsByItemId[id] || []);
+    const commentCount = (item.stats && item.stats.comment_count) || comments.length;
+
+    if (images.length > 0 && commentCount >= MIN_COMMENTS) candidateCount++;
+    if (images.length === 0 || commentCount < MIN_COMMENTS) continue;
+
+    if (comments.length >= MIN_COMMENTS) {
+      await collect(serverUrl, buildPayload(item, comments, 'feed'));
+      successCount++;
+      continue;
+    }
+
+    activeTargets.push({ id, item, cellType: cellTypeById[id] || 1 });
+  }
+
+  for (const target of activeTargets.slice(0, MAX_ACTIVE_COMMENT_REQUESTS)) {
+    activeTried++;
+
+    try {
+      const page = await fetchCommentPage(reqUrl, reqHeaders, target.id, target.cellType);
+      const data = page.data.data || {};
+      const cellComments = data.cell_comments || [];
+      const comments = extractComments(cellComments);
+      const item = extractItemFromComments(cellComments) || target.item;
+      const payload = buildPayload(item, comments, `active_comment:${page.mode}`);
+      payload.item_id = payload.item_id || target.id;
+
+      if (payload.images.length === 0 || payload.comments.length < MIN_COMMENTS) {
+        console.log(`[PPX] comment fetch ${target.id} not enough images=${payload.images.length} comments=${payload.comments.length}`);
+        continue;
+      }
+
+      await collect(serverUrl, payload);
+      activeFetched++;
+      successCount++;
+    } catch (e) {
+      activeFailed++;
+      console.log(`[PPX] comment fetch ${target.id} failed: ${e && e.message ? e.message : e}`);
+    }
+  }
+
+  $.notify(
+    '皮皮虾',
+    'Feed 已拦截',
+    `共 ${items.length} 条，评论卡 ${commentCellCount} 条，候选 ${candidateCount} 条，主动 ${activeTried}/${activeTargets.length} 条，上报 ${successCount} 条，失败 ${activeFailed} 条`
+  );
+
+  return {
+    successCount,
+    candidateCount,
+    total: items.length,
+    commentCellCount,
+    activeTried,
+    activeFetched,
+    activeFailed,
+  };
+}
+
+async function handleComments(commentData, serverUrl, reqUrl) {
+  const data = commentData.data || {};
+  const cellComments = data.cell_comments || [];
+  const comments = extractComments(cellComments);
+  const item = extractItemFromComments(cellComments);
+  const itemId = getParam(reqUrl, 'cell_id') || (item && (item.item_id_str || item.item_id)) || '';
+  const offset = getParam(reqUrl, 'offset') || '0';
+
+  if (offset !== '0') {
+    $.notify('皮皮虾', '评论分页跳过', `cell=${itemId} offset=${offset}`);
+    return { skipped: true, reason: 'offset' };
+  }
+
+  if (!item) {
+    $.notify('皮皮虾', '评论无正文', `cell=${itemId} comments=${comments.length}`);
+    return { skipped: true, reason: 'no_item' };
+  }
+
+  const payload = buildPayload(item, comments, 'comment');
+  payload.item_id = payload.item_id || String(itemId);
+
+  if (payload.images.length === 0 || payload.comments.length < MIN_COMMENTS) {
+    $.notify(
+      '皮皮虾',
+      '评论不足',
+      `cell=${payload.item_id} images=${payload.images.length} comments=${payload.comments.length}`
+    );
+    return { skipped: true, reason: 'not_enough' };
+  }
+
+  await collect(serverUrl, payload);
+  $.notify('皮皮虾', '评论上报完成', `cell=${payload.item_id} comments=${payload.comments.length}`);
+  return { successCount: 1, itemId: payload.item_id, comments: payload.comments.length };
+}
+
+(async () => {
+  const args = readArgs();
+  const serverUrl = args.server_url || '';
+  const tgBotToken = args.tg_bot_token || '';
+  const tgChatId = args.tg_chat_id || '';
 
   if (!serverUrl) {
-    $.notify('皮皮虾', '配置缺失 ❌', '请在插件参数中填写服务器地址');
+    $.notify('皮皮虾', '配置缺失', '请在插件参数中填写服务器地址');
     return $.done();
   }
 
   try {
-    const feedData = JSON.parse($response.body);
-    const reqHeaders = $request.headers;
+    const body = JSON.parse($response.body || '{}');
+    const reqUrl = $request.url || '';
+    let result;
 
-    // 从请求 URL 中提取设备参数，供评论接口使用
-    const reqUrl = $request.url;
-    const deviceId = (reqUrl.match(/device_id=([^&]+)/) || [])[1] || '';
-    const aid = (reqUrl.match(/aid=([^&]+)/) || [])[1] || '1319';
-    const versionCode = (reqUrl.match(/version_code=([^&]+)/) || [])[1] || '';
-
-    const items = (feedData.data && feedData.data.data) || [];
-
-    // 调试：发送原始items数据到TG
-    $.notify('皮皮虾', '数据解析 ✅', `共 ${items.length} 条`);
-    await sendTG(tgBotToken, tgChatId, JSON.stringify(items));
-
-    // 只处理：图文帖(cell_type=1)、有多图、评论数 > 5
-    const targets = items.filter(
-      (cell) =>
-        cell.cell_type === 1 &&
-        cell.item &&
-        cell.item.stats &&
-        cell.item.stats.comment_count > 5 &&
-        cell.item.note &&
-        cell.item.note.multi_image &&
-        cell.item.note.multi_image.length > 0
-    );
-
-    if (targets.length === 0) return $.done();
-
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const cell of targets) {
-      const item = cell.item;
-      try {
-        // 拉取评论列表
-        const commentUrl =
-          `https://api5-hl.pipix.com/bds/cell/cell_comment/` +
-          `?offset=0&cell_type=${cell.cell_type}&api_version=1` +
-          `&cell_id=${cell.cell_id_str}` +
-          `&device_id=${deviceId}&ac=wifi&aid=${aid}` +
-          `&app_name=super&version_code=${versionCode}`;
-
-        const commentResp = await $.get({ url: commentUrl, headers: reqHeaders });
-        const commentData = JSON.parse(commentResp.body);
-        const cellComments = (commentData.data && commentData.data.cell_comments) || [];
-
-        const comments = cellComments
-          .map((c) => ({
-            id: c.comment_info.comment_id_str,
-            text: c.comment_info.text,
-          }))
-          .filter((c) => c.text && c.text.indexOf('type=1') === -1);
-
-        if (comments.length < 5) {
-          $.notify('皮皮虾', '评论不足', `cell=${cell.cell_id_str} cellComments=${cellComments.length} filtered=${comments.length} raw=${commentResp.body.substring(0, 100)}`);
-          continue;
-        }
-
-        const images = item.note.multi_image.map((m) => ({
-          url:
-            (m.download_list && m.download_list[0] && m.download_list[0].url) ||
-            (m.url_list && m.url_list[0] && m.url_list[0].url) ||
-            '',
-          is_gif: m.is_gif,
-        })).filter((m) => m.url);
-
-        $.notify('皮皮虾', 'images调试', `第一条url前50: ${images[0] ? images[0].url.substring(0, 50) : '空'}`);
-
-        await $.post({
-          url: serverUrl + '/collect',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            item_id: item.item_id_str,
-            images,
-            comments,
-          }),
-        });
-
-        successCount++;
-      } catch (e) {
-        failCount++;
-        console.log(`[PPX] ${cell.cell_id_str} 失败: ${e.message || e}`);
-      }
+    if (/\/bds\/cell\/cell_comment\//.test(reqUrl)) {
+      result = await handleComments(body, serverUrl, reqUrl);
+    } else if (/\/bds\/feed\/stream/.test(reqUrl)) {
+      result = await handleFeed(body, serverUrl, reqUrl, $request.headers || {});
+    } else {
+      result = { skipped: true, reason: 'unknown_url' };
     }
 
-    const msg = `上报 ${successCount} 条，失败 ${failCount} 条`;
-    if (successCount > 0) {
-      $.notify('皮皮虾', 'Feed 抓取完成 ✅', msg);
-      await sendTG(tgBotToken, tgChatId, `皮皮虾 Feed 抓取\n${msg}`);
+    if (result && result.successCount > 0) {
+      await sendTG(tgBotToken, tgChatId, `皮皮虾抓取成功：${JSON.stringify(result)}`);
     }
   } catch (e) {
-    $.notify('皮皮虾', '脚本异常 ❌', e.message || e);
-    await sendTG(tgBotToken, tgChatId, `皮皮虾脚本异常: ${e.message || e}`);
+    const message = e && e.message ? e.message : String(e);
+    $.notify('皮皮虾', '脚本异常', message);
+    await sendTG(tgBotToken, tgChatId, `皮皮虾脚本异常: ${message}`);
   }
 
   $.done();
