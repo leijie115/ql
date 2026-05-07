@@ -9,12 +9,12 @@ tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token（可选）
 tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID（可选）
 
 [Script]
-http-response https://api5-lf\.pipix\.com/bds/feed/stream script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-5, requires-body=true, timeout=60, tag=ppx_feed_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
-http-response https://api5-lf\.pipix\.com/bds/cell/cell_comment script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-5, requires-body=true, timeout=60, tag=ppx_comment_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-response ^https:\/\/api5(?:-[^./]+)?\.pipix\.com\/bds\/feed\/stream script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-6, requires-body=true, timeout=60, tag=ppx_feed_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-response ^https:\/\/api5(?:-[^./]+)?\.pipix\.com\/bds\/cell\/cell_comment script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-6, requires-body=true, timeout=60, tag=ppx_comment_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
 
 [Rule]
-AND,((DOMAIN,api5-lf.pipix.com),(PROTOCOL,QUIC)),REJECT-DROP
-AND,((DOMAIN,api5-lf.pipix.com),(PROTOCOL,UDP),(DEST-PORT,443)),REJECT-DROP
+AND,((DOMAIN-SUFFIX,pipix.com),(DOMAIN-KEYWORD,api5),(PROTOCOL,QUIC)),REJECT-DROP
+AND,((DOMAIN-SUFFIX,pipix.com),(DOMAIN-KEYWORD,api5),(PROTOCOL,UDP),(DEST-PORT,443)),REJECT-DROP
 
 [MITM]
-hostname = api5-lf.pipix.com
+hostname = api5.pipix.com, api5-*.pipix.com
