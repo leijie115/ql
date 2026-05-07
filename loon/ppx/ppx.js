@@ -130,6 +130,14 @@ function routeOf(url) {
   return path.split('?')[0] || '/';
 }
 
+function getRequest() {
+  return typeof $request === 'object' && $request ? $request : {};
+}
+
+function getResponse() {
+  return typeof $response === 'object' && $response ? $response : null;
+}
+
 function buildCommentUrl(feedUrl, itemId, cellType) {
   const params = parseQuery(feedUrl);
   params.offset = '0';
@@ -475,15 +483,23 @@ async function handleComments(commentData, serverUrl, reqUrl) {
 }
 
 (async () => {
+  const req = getRequest();
+  const resp = getResponse();
   const args = readArgs();
   const serverUrl = args.server_url || '';
   const tgBotToken = args.tg_bot_token || '';
   const tgChatId = args.tg_chat_id || '';
+  const reqUrl = req.url || '';
 
   notifyPPX(
     '脚本触发',
-    `url=${routeOf(($request && $request.url) || '')} server=${serverUrl || '未配置'} body=${(($response && $response.body) || '').length}`
+    `method=${req.method || 'n/a'} url=${routeOf(reqUrl)} response=${resp ? 'yes' : 'no'} server=${serverUrl || '未配置'} body=${resp && resp.body ? resp.body.length : 0}`
   );
+
+  if (!resp) {
+    notifyPPX('请求已抓到', `host=${hostOf(reqUrl)} route=${routeOf(reqUrl)}`);
+    return $.done();
+  }
 
   if (!serverUrl) {
     notifyPPX('配置缺失', '请在插件参数中填写服务器地址');
@@ -491,8 +507,7 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   }
 
   try {
-    const body = JSON.parse($response.body || '{}');
-    const reqUrl = $request.url || '';
+    const body = JSON.parse(resp.body || '{}');
     let result;
 
     notifyPPX(
@@ -503,7 +518,7 @@ async function handleComments(commentData, serverUrl, reqUrl) {
     if (/\/bds\/cell\/cell_comment\//.test(reqUrl)) {
       result = await handleComments(body, serverUrl, reqUrl);
     } else if (/\/bds\/feed\/stream/.test(reqUrl)) {
-      result = await handleFeed(body, serverUrl, reqUrl, $request.headers || {});
+      result = await handleFeed(body, serverUrl, reqUrl, req.headers || {});
     } else {
       result = { skipped: true, reason: 'unknown_url' };
     }
