@@ -130,6 +130,29 @@ function routeOf(url) {
   return path.split('?')[0] || '/';
 }
 
+function headerValue(headers, name) {
+  const target = String(name || '').toLowerCase();
+  for (const key of Object.keys(headers || {})) {
+    if (key.toLowerCase() === target) return headers[key];
+  }
+  return '';
+}
+
+function isPpxTraceRequest(url, headers) {
+  const host = hostOf(url).toLowerCase();
+  const route = routeOf(url).toLowerCase();
+  const ua = String(headerValue(headers, 'user-agent')).toLowerCase();
+
+  return (
+    host.indexOf('pipix.com') !== -1 ||
+    host.indexOf('snssdk.com') !== -1 ||
+    route.indexOf('/bds/') !== -1 ||
+    ua.indexOf('super ') !== -1 ||
+    ua.indexOf('super/') !== -1 ||
+    ua.indexOf('pipix') !== -1
+  );
+}
+
 function getRequest() {
   return typeof $request === 'object' && $request ? $request : {};
 }
@@ -491,18 +514,29 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   const tgChatId = args.tg_chat_id || '';
   const reqUrl = req.url || '';
 
+  if (/^https?:\/\/neverssl\.com\/ppx-debug/.test(reqUrl)) {
+    notifyPPX(
+      '脚本触发',
+      `method=${req.method || 'n/a'} url=${routeOf(reqUrl)} response=${resp ? 'yes' : 'no'} server=${serverUrl || '未配置'} body=${resp && resp.body ? resp.body.length : 0}`
+    );
+    notifyPPX('测试命中', `response=${resp ? 'yes' : 'no'} status=${resp && resp.status ? resp.status : 'n/a'}`);
+    return $.done();
+  }
+
+  if (!isPpxTraceRequest(reqUrl, req.headers || {})) {
+    return $.done();
+  }
+
   notifyPPX(
     '脚本触发',
     `method=${req.method || 'n/a'} url=${routeOf(reqUrl)} response=${resp ? 'yes' : 'no'} server=${serverUrl || '未配置'} body=${resp && resp.body ? resp.body.length : 0}`
   );
 
-  if (/^https?:\/\/neverssl\.com\/ppx-debug/.test(reqUrl)) {
-    notifyPPX('测试命中', `response=${resp ? 'yes' : 'no'} status=${resp && resp.status ? resp.status : 'n/a'}`);
-    return $.done();
-  }
-
   if (!resp) {
-    notifyPPX('请求已抓到', `host=${hostOf(reqUrl)} route=${routeOf(reqUrl)}`);
+    notifyPPX(
+      '请求已抓到',
+      `host=${hostOf(reqUrl)} route=${routeOf(reqUrl)} ua=${truncate(headerValue(req.headers, 'user-agent'), 140)}`
+    );
     return $.done();
   }
 
