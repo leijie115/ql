@@ -506,6 +506,16 @@ async function handleComments(commentData, serverUrl, reqUrl) {
     return $.done();
   }
 
+  const isTargetResponse =
+    /\/bds\/cell\/cell_comment\//.test(reqUrl) || /\/bds\/feed\/stream/.test(reqUrl);
+  if (!isTargetResponse && /(pipix|snssdk)\.com\//.test(reqUrl)) {
+    notifyPPX(
+      '域名响应命中',
+      `host=${hostOf(reqUrl)} route=${routeOf(reqUrl)} body=${resp && resp.body ? resp.body.length : 0}`
+    );
+    return $.done();
+  }
+
   if (!serverUrl) {
     notifyPPX('配置缺失', '请在插件参数中填写服务器地址');
     return $.done();

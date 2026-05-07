@@ -11,8 +11,8 @@ tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID（可选）
 [Script]
 http-request http://neverssl\.com/ppx-debug script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js, timeout=60, tag=ppx_debug_test, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
 http-response http://neverssl\.com/ppx-debug script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js, requires-body=true, timeout=60, tag=ppx_debug_test_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
-http-request https://api5[-a-z]*\.pipix\.com/bds/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js, timeout=60, tag=ppx_debug_request, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
-http-response https://api5[-a-z]*\.pipix\.com/bds/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js, requires-body=true, timeout=60, tag=ppx_bds_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-request ^https?:\/\/[^\/]*(pipix|snssdk)\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js, timeout=60, tag=ppx_domain_request, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-response ^https?:\/\/[^\/]*(pipix|snssdk)\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js, requires-body=true, timeout=60, tag=ppx_domain_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
 
 [MITM]
-hostname = api5.pipix.com, api5-lf.pipix.com, api5-hl.pipix.com, *.pipix.com, neverssl.com
+hostname = api5.pipix.com, api5-lf.pipix.com, api5-hl.pipix.com, *.pipix.com, *.snssdk.com, neverssl.com
