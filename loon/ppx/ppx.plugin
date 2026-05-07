@@ -9,12 +9,16 @@ tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token（可选）
 tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID（可选）
 
 [Script]
-http-request http://neverssl\.com/ppx-debug script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-2, timeout=60, tag=ppx_debug_test, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
-http-response http://neverssl\.com/ppx-debug script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-2, requires-body=true, timeout=60, tag=ppx_debug_test_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
-http-request ^https?:\/\/[^\/]*\.pipix\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-2, timeout=60, tag=ppx_pipix_request, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
-http-response ^https?:\/\/[^\/]*\.pipix\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-2, requires-body=true, timeout=60, tag=ppx_pipix_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
-http-request ^https?:\/\/[^\/]*\.snssdk\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-2, timeout=60, tag=ppx_snssdk_request, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
-http-response ^https?:\/\/[^\/]*\.snssdk\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-2, requires-body=true, timeout=60, tag=ppx_snssdk_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-request http://neverssl\.com/ppx-debug script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, timeout=60, tag=ppx_debug_test, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-response http://neverssl\.com/ppx-debug script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, requires-body=true, timeout=60, tag=ppx_debug_test_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-request https://api5-lf\.pipix\.com/bds/feed/stream script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, timeout=60, tag=ppx_feed_exact_request, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-response https://api5-lf\.pipix\.com/bds/feed/stream script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, requires-body=true, timeout=60, tag=ppx_feed_exact_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-request https://api5-lf\.pipix\.com/bds/cell/cell_comment script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, timeout=60, tag=ppx_comment_exact_request, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-response https://api5-lf\.pipix\.com/bds/cell/cell_comment script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, requires-body=true, timeout=60, tag=ppx_comment_exact_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-request ^https?:\/\/[^\/]*\.pipix\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, timeout=60, tag=ppx_pipix_request, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-response ^https?:\/\/[^\/]*\.pipix\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, requires-body=true, timeout=60, tag=ppx_pipix_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-request ^https?:\/\/[^\/]*\.snssdk\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, timeout=60, tag=ppx_snssdk_request, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
+http-response ^https?:\/\/[^\/]*\.snssdk\.com\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-3, requires-body=true, timeout=60, tag=ppx_snssdk_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
 
 [MITM]
 hostname = api5.pipix.com, api5-lf.pipix.com, api5-hl.pipix.com, *.pipix.com, *.snssdk.com, neverssl.com
