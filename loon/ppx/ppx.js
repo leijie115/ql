@@ -496,6 +496,11 @@ async function handleComments(commentData, serverUrl, reqUrl) {
     `method=${req.method || 'n/a'} url=${routeOf(reqUrl)} response=${resp ? 'yes' : 'no'} server=${serverUrl || '未配置'} body=${resp && resp.body ? resp.body.length : 0}`
   );
 
+  if (/^https?:\/\/neverssl\.com\/ppx-debug/.test(reqUrl)) {
+    notifyPPX('测试命中', `response=${resp ? 'yes' : 'no'} status=${resp && resp.status ? resp.status : 'n/a'}`);
+    return $.done();
+  }
+
   if (!resp) {
     notifyPPX('请求已抓到', `host=${hostOf(reqUrl)} route=${routeOf(reqUrl)}`);
     return $.done();
