@@ -7,6 +7,7 @@
 
 const MIN_COMMENTS = 5;
 const MAX_ACTIVE_COMMENT_REQUESTS = 5;
+const NOTIFY_MAX_LEN = 520;
 
 const $ = {
   notify: (title, subtitle, body) => $notification.post(title, subtitle, body),
@@ -24,6 +25,15 @@ const $ = {
       )
     ),
 };
+
+function truncate(value, maxLen) {
+  const text = String(value || '');
+  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+}
+
+function notifyPPX(subtitle, body) {
+  $.notify('皮皮虾', subtitle, truncate(body, NOTIFY_MAX_LEN));
+}
 
 function readArgs() {
   if (typeof $argument === 'object' && $argument) {
@@ -113,6 +123,11 @@ function originOf(url) {
 
 function hostOf(url) {
   return originOf(url).replace(/^https?:\/\//, '');
+}
+
+function routeOf(url) {
+  const path = String(url || '').replace(/^https?:\/\/[^/]+/, '');
+  return path.split('?')[0] || '/';
 }
 
 function buildCommentUrl(feedUrl, itemId, cellType) {
@@ -247,6 +262,11 @@ function buildPayload(item, comments, source) {
 }
 
 async function collect(serverUrl, payload) {
+  notifyPPX(
+    '准备上报',
+    `server=${serverUrl.replace(/\/+$/, '')}/collect item=${payload.item_id} images=${payload.images.length} comments=${payload.comments.length} source=${payload.source}`
+  );
+
   const resp = await $.post({
     url: serverUrl.replace(/\/+$/, '') + '/collect',
     headers: { 'Content-Type': 'application/json' },
@@ -254,8 +274,14 @@ async function collect(serverUrl, payload) {
   });
 
   if (resp.status < 200 || resp.status >= 300) {
+    notifyPPX(
+      '上报失败',
+      `status=${resp.status} item=${payload.item_id} body=${String(resp.body || '').slice(0, 160)}`
+    );
     throw new Error(`collect status=${resp.status} body=${String(resp.body || '').slice(0, 120)}`);
   }
+
+  notifyPPX('上报成功', `item=${payload.item_id} status=${resp.status}`);
 }
 
 async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType) {
@@ -268,6 +294,7 @@ async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType) {
 
   for (const attempt of attempts) {
     try {
+      notifyPPX('主动拉评论', `item=${itemId} mode=${attempt.name} url=${routeOf(url)}`);
       const resp = await $.get({ url, headers: attempt.headers });
       if (resp.status < 200 || resp.status >= 300) {
         throw new Error(`status=${resp.status}`);
@@ -278,9 +305,12 @@ async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType) {
         throw new Error(`code=${data.status_code} message=${data.message || ''}`);
       }
 
+      const count = data.data && data.data.cell_comments ? data.data.cell_comments.length : 0;
+      notifyPPX('主动拉成功', `item=${itemId} mode=${attempt.name} comments=${count}`);
       return { data, url, mode: attempt.name };
     } catch (e) {
       lastError = `${attempt.name}: ${e && e.message ? e.message : e}`;
+      notifyPPX('主动拉失败', `item=${itemId} ${lastError}`);
       console.log(`[PPX] comment fetch ${itemId} ${lastError}`);
     }
   }
@@ -294,6 +324,11 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
   const cellTypeById = {};
   const commentsByItemId = {};
   let commentCellCount = 0;
+
+  notifyPPX(
+    'Feed 响应已抓到',
+    `items=${items.length} host=${hostOf(reqUrl)} server=${serverUrl || '未配置'}`
+  );
 
   function addComments(itemId, comments) {
     if (!itemId || !comments || comments.length === 0) return;
@@ -348,6 +383,11 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
     activeTargets.push({ id, item, cellType: cellTypeById[id] || 1 });
   }
 
+  notifyPPX(
+    'Feed 候选统计',
+    `帖子=${Object.keys(itemById).length} 评论卡=${commentCellCount} 候选=${candidateCount} 需主动=${activeTargets.length}`
+  );
+
   for (const target of activeTargets.slice(0, MAX_ACTIVE_COMMENT_REQUESTS)) {
     activeTried++;
 
@@ -361,6 +401,10 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
       payload.item_id = payload.item_id || target.id;
 
       if (payload.images.length === 0 || payload.comments.length < MIN_COMMENTS) {
+        notifyPPX(
+          '主动评论不足',
+          `item=${target.id} images=${payload.images.length} comments=${payload.comments.length}`
+        );
         console.log(`[PPX] comment fetch ${target.id} not enough images=${payload.images.length} comments=${payload.comments.length}`);
         continue;
       }
@@ -370,12 +414,12 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
       successCount++;
     } catch (e) {
       activeFailed++;
+      notifyPPX('主动处理失败', `item=${target.id} ${e && e.message ? e.message : e}`);
       console.log(`[PPX] comment fetch ${target.id} failed: ${e && e.message ? e.message : e}`);
     }
   }
 
-  $.notify(
-    '皮皮虾',
+  notifyPPX(
     'Feed 已拦截',
     `共 ${items.length} 条，评论卡 ${commentCellCount} 条，候选 ${candidateCount} 条，主动 ${activeTried}/${activeTargets.length} 条，上报 ${successCount} 条，失败 ${activeFailed} 条`
   );
@@ -399,13 +443,18 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   const itemId = getParam(reqUrl, 'cell_id') || (item && (item.item_id_str || item.item_id)) || '';
   const offset = getParam(reqUrl, 'offset') || '0';
 
+  notifyPPX(
+    '评论响应已抓到',
+    `cell=${itemId} offset=${offset} raw=${cellComments.length} filtered=${comments.length}`
+  );
+
   if (offset !== '0') {
-    $.notify('皮皮虾', '评论分页跳过', `cell=${itemId} offset=${offset}`);
+    notifyPPX('评论分页跳过', `cell=${itemId} offset=${offset}`);
     return { skipped: true, reason: 'offset' };
   }
 
   if (!item) {
-    $.notify('皮皮虾', '评论无正文', `cell=${itemId} comments=${comments.length}`);
+    notifyPPX('评论无正文', `cell=${itemId} comments=${comments.length}`);
     return { skipped: true, reason: 'no_item' };
   }
 
@@ -413,8 +462,7 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   payload.item_id = payload.item_id || String(itemId);
 
   if (payload.images.length === 0 || payload.comments.length < MIN_COMMENTS) {
-    $.notify(
-      '皮皮虾',
+    notifyPPX(
       '评论不足',
       `cell=${payload.item_id} images=${payload.images.length} comments=${payload.comments.length}`
     );
@@ -422,7 +470,7 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   }
 
   await collect(serverUrl, payload);
-  $.notify('皮皮虾', '评论上报完成', `cell=${payload.item_id} comments=${payload.comments.length}`);
+  notifyPPX('评论上报完成', `cell=${payload.item_id} comments=${payload.comments.length}`);
   return { successCount: 1, itemId: payload.item_id, comments: payload.comments.length };
 }
 
@@ -432,8 +480,13 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   const tgBotToken = args.tg_bot_token || '';
   const tgChatId = args.tg_chat_id || '';
 
+  notifyPPX(
+    '脚本触发',
+    `url=${routeOf(($request && $request.url) || '')} server=${serverUrl || '未配置'} body=${(($response && $response.body) || '').length}`
+  );
+
   if (!serverUrl) {
-    $.notify('皮皮虾', '配置缺失', '请在插件参数中填写服务器地址');
+    notifyPPX('配置缺失', '请在插件参数中填写服务器地址');
     return $.done();
   }
 
@@ -441,6 +494,11 @@ async function handleComments(commentData, serverUrl, reqUrl) {
     const body = JSON.parse($response.body || '{}');
     const reqUrl = $request.url || '';
     let result;
+
+    notifyPPX(
+      '响应解析成功',
+      `route=${routeOf(reqUrl)} status_code=${body.status_code === undefined ? 'n/a' : body.status_code}`
+    );
 
     if (/\/bds\/cell\/cell_comment\//.test(reqUrl)) {
       result = await handleComments(body, serverUrl, reqUrl);
@@ -455,7 +513,7 @@ async function handleComments(commentData, serverUrl, reqUrl) {
     }
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
-    $.notify('皮皮虾', '脚本异常', message);
+    notifyPPX('脚本异常', message);
     await sendTG(tgBotToken, tgChatId, `皮皮虾脚本异常: ${message}`);
   }
 
