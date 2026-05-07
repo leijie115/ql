@@ -143,6 +143,8 @@ function isPpxTraceRequest(url, headers) {
   const route = routeOf(url).toLowerCase();
   const ua = String(headerValue(headers, 'user-agent')).toLowerCase();
 
+  if (route.indexOf('/bds/rule/table') !== -1) return false;
+
   return (
     host.indexOf('pipix.com') !== -1 ||
     host.indexOf('snssdk.com') !== -1 ||

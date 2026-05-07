@@ -8,9 +8,6 @@ server_url = input,"",tag=服务器地址,desc=如 http://192.168.1.100:23241
 tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token（可选）
 tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID（可选）
 
-[General]
-disable-udp-ports = 443
-
 [Script]
 http-request http://neverssl\.com/ppx-debug script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-4, timeout=60, tag=ppx_debug_test, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
 http-response http://neverssl\.com/ppx-debug script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-4, requires-body=true, timeout=60, tag=ppx_debug_test_response, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
@@ -25,8 +22,8 @@ http-response ^https?:\/\/[^\/]*\.snssdk\.com\/ script-path=https://raw.githubus
 http-request ^https?:\/\/ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/ppx/ppx.js?v=20260507-4, timeout=60, tag=ppx_super_probe, argument=[{server_url},{tg_bot_token},{tg_chat_id}]
 
 [Rule]
-AND,((DOMAIN-SUFFIX,pipix.com),(PROTOCOL,QUIC)),REJECT
-AND,((DOMAIN-SUFFIX,pipix.com),(PROTOCOL,UDP),(DEST-PORT,443)),REJECT
+AND,((DOMAIN-SUFFIX,pipix.com),(PROTOCOL,QUIC)),REJECT-DROP
+AND,((DOMAIN-SUFFIX,pipix.com),(PROTOCOL,UDP),(DEST-PORT,443)),REJECT-DROP
 
 [MITM]
 hostname = api5.pipix.com, api5-lf.pipix.com, api5-hl.pipix.com, *.pipix.com, *.snssdk.com, neverssl.com
