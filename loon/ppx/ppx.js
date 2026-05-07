@@ -8,6 +8,7 @@
 const MIN_COMMENTS = 5;
 const MAX_ACTIVE_COMMENT_REQUESTS = 5;
 const NOTIFY_MAX_LEN = 520;
+const ENABLE_LOON_NOTIFY = false;
 
 const $ = {
   notify: (title, subtitle, body) => $notification.post(title, subtitle, body),
@@ -32,6 +33,7 @@ function truncate(value, maxLen) {
 }
 
 function notifyPPX(subtitle, body) {
+  if (!ENABLE_LOON_NOTIFY) return;
   $.notify('皮皮虾', subtitle, truncate(body, NOTIFY_MAX_LEN));
 }
 
