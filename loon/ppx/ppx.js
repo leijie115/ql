@@ -268,27 +268,31 @@ function extractItemFromComments(cellComments) {
 }
 
 function itemIdOf(item) {
-  return String((item && (item.item_id_str || item.item_id)) || '');
+  // 只用 _str 字段（字符串），避免数字版本丢失精度后阻断后续的字符串备选
+  return item && item.item_id_str ? String(item.item_id_str) : '';
 }
 
 function commentItemIdOf(cell) {
   const info = cell && (cell.comment_info || cell);
   if (!info) return '';
+  const item = info.item;
 
+  // 字符串来源优先，数字来源作为最后备选
   return String(
-    itemIdOf(info.item) ||
+    itemIdOf(item) ||
       info.item_id_str ||
-      info.item_id ||
       info.root_cell_id_str ||
+      (item && item.item_id) ||
+      info.item_id ||
       info.root_cell_id ||
       ''
   );
 }
 
-function buildPayload(item, comments, source) {
+function buildPayload(item, comments, source, itemId) {
   const note = (item && item.note) || {};
   return {
-    item_id: itemIdOf(item),
+    item_id: itemId || itemIdOf(item),
     title: cleanText(note.title || note.text || (item && item.content)),
     images: extractImages(item),
     comments,
@@ -410,7 +414,7 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
     if (images.length === 0 || commentCount < MIN_COMMENTS) continue;
 
     if (comments.length >= MIN_COMMENTS) {
-      await collect(serverUrl, buildPayload(item, comments, 'feed'));
+      await collect(serverUrl, buildPayload(item, comments, 'feed', id));
       successCount++;
       continue;
     }
