@@ -269,6 +269,10 @@ function extractItemFromComments(cellComments) {
 
 function itemIdOf(item) {
   // 只用 _str 字段（字符串），避免数字版本丢失精度后阻断后续的字符串备选
+  if (item && !item.item_id_str && item.item_id) {
+    // [DEBUG] 临时日志：API 响应缺少 item_id_str 字段
+    console.log(`[PPX-DEBUG] 缺 item_id_str: item_id=${item.item_id} keys=${Object.keys(item).slice(0, 15).join(',')}`);
+  }
   return item && item.item_id_str ? String(item.item_id_str) : '';
 }
 
@@ -278,7 +282,7 @@ function commentItemIdOf(cell) {
   const item = info.item;
 
   // 字符串来源优先，数字来源作为最后备选
-  return String(
+  const result = String(
     itemIdOf(item) ||
       info.item_id_str ||
       info.root_cell_id_str ||
@@ -287,12 +291,36 @@ function commentItemIdOf(cell) {
       info.root_cell_id ||
       ''
   );
+
+  // [DEBUG] 临时日志：标注哪条来源被命中
+  if (result) {
+    let from = 'unknown';
+    if (item && item.item_id_str) from = 'item.item_id_str';
+    else if (info.item_id_str) from = 'info.item_id_str';
+    else if (info.root_cell_id_str) from = 'info.root_cell_id_str';
+    else if (item && item.item_id) from = 'item.item_id(NUMBER)';
+    else if (info.item_id) from = 'info.item_id(NUMBER)';
+    else if (info.root_cell_id) from = 'info.root_cell_id(NUMBER)';
+    if (from.indexOf('NUMBER') !== -1) {
+      console.log(`[PPX-DEBUG] comment 用了数字: id=${result} from=${from}`);
+    }
+  }
+  return result;
 }
 
 function buildPayload(item, comments, source, itemId) {
   const note = (item && item.note) || {};
+  // [DEBUG] 临时日志：观察传入的 itemId 与 item 自身的 item_id_str 是否一致
+  const fromItem = itemIdOf(item);
+  const finalId = itemId || fromItem;
+  if (itemId && fromItem && itemId !== fromItem) {
+    console.log(`[PPX-DEBUG] id 不一致: passed=${itemId} fromItem=${fromItem}`);
+  }
+  if (!finalId) {
+    console.log(`[PPX-DEBUG] 空 item_id: source=${source} hasItem=${!!item}`);
+  }
   return {
-    item_id: itemId || itemIdOf(item),
+    item_id: finalId,
     title: cleanText(note.title || note.text || (item && item.content)),
     images: extractImages(item),
     comments,
@@ -306,10 +334,15 @@ async function collect(serverUrl, payload) {
     `server=${serverUrl.replace(/\/+$/, '')}/collect item=${payload.item_id} images=${payload.images.length} comments=${payload.comments.length} source=${payload.source}`
   );
 
+  const body = JSON.stringify(payload);
+  // [DEBUG] 临时日志：截取 body 里 item_id 那一段，看 JSON 里实际是字符串还是数字
+  const idMatch = body.match(/"item_id"\s*:\s*("?[^",}]+"?)/);
+  console.log(`[PPX-DEBUG] body 实际: item_id_in_body=${idMatch ? idMatch[1] : 'NOT_FOUND'} payload.item_id=${payload.item_id}`);
+
   const resp = await $.post({
     url: serverUrl.replace(/\/+$/, '') + '/collect',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body,
   });
 
   if (resp.status < 200 || resp.status >= 300) {
