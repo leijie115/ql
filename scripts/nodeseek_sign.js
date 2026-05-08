@@ -130,7 +130,11 @@ async function doSign(name, cookie, index) {
         } else if (result.message) {
             msg = `ℹ️ ${name} ${result.message}`;
         } else if (result.raw) {
-            msg = `⚠️ ${name} 响应异常: ${result.raw.substring(0, 200)}`;
+            if (result.raw.includes('cf_chl') || result.raw.includes('Just a moment')) {
+                msg = `⚠️ ${name} 被Cloudflare拦截，cf_clearance已过期，请重新登录获取Cookie`;
+            } else {
+                msg = `⚠️ ${name} 响应异常: ${result.raw.replace(/<[^>]*>/g, '').substring(0, 100)}`;
+            }
         } else {
             msg = `⚠️ ${name} 签到失败: ${JSON.stringify(result)}`;
         }
