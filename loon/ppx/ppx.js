@@ -6,7 +6,7 @@
  */
 
 const MIN_COMMENTS = 5;
-const MAX_ACTIVE_COMMENT_REQUESTS = 5;
+const MAX_ACTIVE_COMMENT_REQUESTS = 20;
 const NOTIFY_MAX_LEN = 520;
 const ENABLE_LOON_NOTIFY = false;
 const LARGE_ID_KEYS = '(?:item|cell|root_cell|comment)_id';
@@ -267,6 +267,49 @@ function cleanText(text) {
     .trim();
 }
 
+function safeCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? count : 0;
+}
+
+function maxCount() {
+  let count = 0;
+  for (let i = 0; i < arguments.length; i++) {
+    count = Math.max(count, safeCount(arguments[i]));
+  }
+  return count;
+}
+
+function commentCountOf(cell, item, comments) {
+  const info = cell && (cell.comment_info || cell);
+  const stats = item && item.stats;
+  const cellStats = cell && cell.stats;
+  const infoItem = info && info.item;
+  const infoStats = infoItem && infoItem.stats;
+
+  return maxCount(
+    comments && comments.length,
+    item && item.comment_count,
+    item && item.comments_count,
+    item && item.comment_cnt,
+    item && item.reply_count,
+    stats && stats.comment_count,
+    stats && stats.reply_count,
+    cell && cell.comment_count,
+    cell && cell.comments_count,
+    cell && cell.comment_cnt,
+    cell && cell.reply_count,
+    cellStats && cellStats.comment_count,
+    cellStats && cellStats.reply_count,
+    info && info.comment_count,
+    info && info.comments_count,
+    info && info.comment_cnt,
+    info && info.reply_count,
+    infoStats && infoStats.comment_count,
+    infoStats && infoStats.reply_count
+  );
+}
+
 function extractComments(cellsOrComments) {
   const seen = {};
   const comments = [];
@@ -424,6 +467,7 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
   const itemById = {};
   const cellTypeById = {};
   const commentsByItemId = {};
+  const commentCountByItemId = {};
   let commentCellCount = 0;
 
   notifyPPX(
@@ -436,6 +480,11 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
     commentsByItemId[itemId] = (commentsByItemId[itemId] || []).concat(comments);
   }
 
+  function addCommentCount(itemId, count) {
+    if (!itemId || !count) return;
+    commentCountByItemId[itemId] = Math.max(commentCountByItemId[itemId] || 0, count);
+  }
+
   for (const cell of items) {
     const item = cell && cell.item;
     if (item && cell.cell_type === 1) {
@@ -443,6 +492,7 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
       if (id) itemById[id] = item;
       if (id) cellTypeById[id] = cell.cell_type || item.item_cell_type || item.item_type || 1;
       addComments(id, item.comments || []);
+      addCommentCount(id, commentCountOf(cell, item, item.comments || []));
       continue;
     }
 
@@ -456,6 +506,7 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
         cellTypeById[id] = cell.comment_info.root_cell_type || 1;
       }
       addComments(id, [cell]);
+      addCommentCount(id, commentCountOf(cell, cell.comment_info.item, [cell]));
     }
   }
 
@@ -470,7 +521,7 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
     const item = itemById[id];
     const images = extractImages(item);
     const comments = extractComments(commentsByItemId[id] || []);
-    const commentCount = (item.stats && item.stats.comment_count) || comments.length;
+    const commentCount = Math.max(commentCountByItemId[id] || 0, commentCountOf(null, item, comments));
 
     if (images.length > 0 && commentCount >= MIN_COMMENTS) candidateCount++;
     if (images.length === 0 || commentCount < MIN_COMMENTS) continue;
