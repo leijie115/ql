@@ -9,6 +9,7 @@ const MIN_COMMENTS = 5;
 const MAX_ACTIVE_COMMENT_REQUESTS = 5;
 const NOTIFY_MAX_LEN = 520;
 const ENABLE_LOON_NOTIFY = false;
+const LARGE_ID_KEYS = '(?:item|cell|root_cell|comment)_id';
 
 const $ = {
   notify: (title, subtitle, body) => $notification.post(title, subtitle, body),
@@ -30,6 +31,33 @@ const $ = {
 function truncate(value, maxLen) {
   const text = String(value || '');
   return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+}
+
+function parsePpxJson(body) {
+  const text = String(body || '{}');
+  const safeText = text.replace(
+    new RegExp(`"(${LARGE_ID_KEYS})"\\s*:\\s*(-?\\d{16,})(?=\\s*[,}])`, 'g'),
+    '"$1":"$2"'
+  );
+  return JSON.parse(safeText || '{}');
+}
+
+function normalizeId(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'number') {
+    if (Number.isSafeInteger(value)) return String(value);
+    console.log(`[PPX-DEBUG] 忽略不安全数字 ID: ${value}`);
+    return '';
+  }
+  return String(value);
+}
+
+function firstId() {
+  for (let i = 0; i < arguments.length; i++) {
+    const id = normalizeId(arguments[i]);
+    if (id) return id;
+  }
+  return '';
 }
 
 function notifyPPX(subtitle, body) {
@@ -248,7 +276,7 @@ function extractComments(cellsOrComments) {
     if (!info) return;
 
     const text = cleanText(info.text || info.content);
-    const id = String(info.comment_id_str || info.comment_id || cell.cell_id_str || cell.cell_id || '');
+    const id = firstId(info.comment_id_str, info.comment_id, cell.cell_id_str, cell.cell_id);
     if (!text || seen[id || text]) return;
     if (text.indexOf('type=1') !== -1) return;
 
@@ -268,12 +296,11 @@ function extractItemFromComments(cellComments) {
 }
 
 function itemIdOf(item) {
-  // 只用 _str 字段（字符串），避免数字版本丢失精度后阻断后续的字符串备选
-  if (item && !item.item_id_str && item.item_id) {
-    // [DEBUG] 临时日志：API 响应缺少 item_id_str 字段
-    console.log(`[PPX-DEBUG] 缺 item_id_str: item_id=${item.item_id} keys=${Object.keys(item).slice(0, 15).join(',')}`);
+  const id = firstId(item && item.item_id_str, item && item.item_id);
+  if (item && !item.item_id_str && item.item_id && !id) {
+    console.log(`[PPX-DEBUG] 缺 item_id_str 且 item_id 不安全: item_id=${item.item_id} keys=${Object.keys(item).slice(0, 15).join(',')}`);
   }
-  return item && item.item_id_str ? String(item.item_id_str) : '';
+  return id;
 }
 
 function commentItemIdOf(cell) {
@@ -281,27 +308,29 @@ function commentItemIdOf(cell) {
   if (!info) return '';
   const item = info.item;
 
-  // 字符串来源优先，数字来源作为最后备选
-  const result = String(
-    itemIdOf(item) ||
-      info.item_id_str ||
-      info.root_cell_id_str ||
-      (item && item.item_id) ||
-      info.item_id ||
-      info.root_cell_id ||
-      ''
-  );
+  const sources = [
+    { name: 'item.item_id', value: itemIdOf(item) },
+    { name: 'info.item_id_str', value: info.item_id_str },
+    { name: 'info.root_cell_id_str', value: info.root_cell_id_str },
+    { name: 'item.item_id', value: item && item.item_id },
+    { name: 'info.item_id', value: info.item_id },
+    { name: 'info.root_cell_id', value: info.root_cell_id },
+  ];
+  let result = '';
+  let from = 'unknown';
+  let rawValue = '';
+  for (const source of sources) {
+    result = normalizeId(source.value);
+    if (result) {
+      from = source.name;
+      rawValue = source.value;
+      break;
+    }
+  }
 
   // [DEBUG] 临时日志：标注哪条来源被命中
   if (result) {
-    let from = 'unknown';
-    if (item && item.item_id_str) from = 'item.item_id_str';
-    else if (info.item_id_str) from = 'info.item_id_str';
-    else if (info.root_cell_id_str) from = 'info.root_cell_id_str';
-    else if (item && item.item_id) from = 'item.item_id(NUMBER)';
-    else if (info.item_id) from = 'info.item_id(NUMBER)';
-    else if (info.root_cell_id) from = 'info.root_cell_id(NUMBER)';
-    if (from.indexOf('NUMBER') !== -1) {
+    if (typeof rawValue === 'number') {
       console.log(`[PPX-DEBUG] comment 用了数字: id=${result} from=${from}`);
     }
   }
@@ -312,7 +341,7 @@ function buildPayload(item, comments, source, itemId) {
   const note = (item && item.note) || {};
   // [DEBUG] 临时日志：观察传入的 itemId 与 item 自身的 item_id_str 是否一致
   const fromItem = itemIdOf(item);
-  const finalId = itemId || fromItem;
+  const finalId = firstId(itemId, fromItem);
   if (itemId && fromItem && itemId !== fromItem) {
     console.log(`[PPX-DEBUG] id 不一致: passed=${itemId} fromItem=${fromItem}`);
   }
@@ -372,7 +401,7 @@ async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType) {
         throw new Error(`status=${resp.status}`);
       }
 
-      const data = JSON.parse(resp.body || '{}');
+      const data = parsePpxJson(resp.body || '{}');
       if (data.status_code !== undefined && data.status_code !== 0) {
         throw new Error(`code=${data.status_code} message=${data.message || ''}`);
       }
@@ -410,7 +439,7 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
   for (const cell of items) {
     const item = cell && cell.item;
     if (item && cell.cell_type === 1) {
-      const id = itemIdOf(item) || String(cell.cell_id_str || cell.cell_id || '');
+      const id = firstId(itemIdOf(item), cell.cell_id_str, cell.cell_id);
       if (id) itemById[id] = item;
       if (id) cellTypeById[id] = cell.cell_type || item.item_cell_type || item.item_type || 1;
       addComments(id, item.comments || []);
@@ -512,7 +541,7 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   const cellComments = data.cell_comments || [];
   const comments = extractComments(cellComments);
   const item = extractItemFromComments(cellComments);
-  const itemId = getParam(reqUrl, 'cell_id') || (item && (item.item_id_str || item.item_id)) || '';
+  const itemId = firstId(getParam(reqUrl, 'cell_id'), item && item.item_id_str, item && item.item_id);
   const offset = getParam(reqUrl, 'offset') || '0';
 
   notifyPPX(
@@ -531,7 +560,7 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   }
 
   const payload = buildPayload(item, comments, 'comment');
-  payload.item_id = payload.item_id || String(itemId);
+  payload.item_id = payload.item_id || itemId;
 
   if (payload.images.length === 0 || payload.comments.length < MIN_COMMENTS) {
     notifyPPX(
@@ -597,7 +626,7 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   }
 
   try {
-    const body = JSON.parse(resp.body || '{}');
+    const body = parsePpxJson(resp.body || '{}');
     let result;
 
     notifyPPX(
