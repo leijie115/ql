@@ -1,0 +1,19 @@
+#!name=水弹签到参数自动更新
+#!desc=自动抓取水弹签到 uid、Cookie、User-Agent 并更新到青龙面板 SDGUN 环境变量
+#!author=leos
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Cookie.png
+
+[Argument]
+ql_url = input,"",tag=青龙面板地址,desc=如 https://ql.example.com
+ql_client_id = input,"",tag=Client ID,desc=青龙应用 Client ID
+ql_client_secret = input,"",tag=Client Secret,desc=青龙应用 Client Secret
+cron_search = input,"shuidan_sign",tag=签到任务关键词,desc=留空则只更新环境变量
+tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token(可选)
+tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID(可选)
+
+[Script]
+http-response ^https:\/\/mag1\.sdgun\.net\/mag\/addon\/v1\/sign\/signView\? script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/shuidan/shuidan_token.js, requires-body=true, tag=水弹签到参数, argument=[{ql_url},{ql_client_id},{ql_client_secret},{cron_search},{tg_bot_token},{tg_chat_id}]
+http-request ^https:\/\/mag1\.sdgun\.net\/mag\/addon\/v1\/sign\/signReward\?uid=[0-9]+ script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/shuidan/shuidan_token.js, tag=水弹签到参数, argument=[{ql_url},{ql_client_id},{ql_client_secret},{cron_search},{tg_bot_token},{tg_chat_id}]
+
+[MITM]
+hostname = mag1.sdgun.net
