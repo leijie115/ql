@@ -18,6 +18,9 @@ const SIGN_HOST = 'mag1.sdgun.net';
 const SIGN_BASE_URL = `https://${SIGN_HOST}`;
 const SDGUN_COOKIE_NAME = '3df5d0fc98d8c119af2e389a3f45b5b0';
 const STATE_FILE = path.join(__dirname, '.shuidan_keyword_monitor_seen.json');
+const MAX_CONTENT_LENGTH = 1600;
+const MAX_MEDIA_ITEMS = 10;
+const MAX_MEDIA_GROUP_ITEMS = 10;
 const ACCEPT_ENCODING = [
     'gzip',
     'deflate',
@@ -41,7 +44,7 @@ const USER_AGENTS = [
     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MAGAPPX|6.1.3-4.0.0-132|iOS 26.3.1 iPhone17,2|shuidan|08691728-561C-40E3-9690-0536BC98568B|79e30307f3183a028a5b94d7233763f1|a4cc2ee15b2de2aa661c80bb1e624f06|409ab63de78984d3924e44b9a471959f'
 ];
 
-function httpGet(url, headers) {
+function httpGetText(url, headers) {
     return new Promise((resolve, reject) => {
         const urlObj = new URL(url);
         const options = {
@@ -62,11 +65,7 @@ function httpGet(url, headers) {
                             reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
                             return;
                         }
-                        try {
-                            resolve(JSON.parse(data));
-                        } catch {
-                            reject(new Error(`响应不是JSON: ${data.slice(0, 200)}`));
-                        }
+                        resolve(data);
                     })
                     .catch(reject);
             });
@@ -75,6 +74,15 @@ function httpGet(url, headers) {
         req.on('error', reject);
         req.end();
     });
+}
+
+async function httpGetJson(url, headers) {
+    const text = await httpGetText(url, headers);
+    try {
+        return JSON.parse(text);
+    } catch {
+        throw new Error(`响应不是JSON: ${text.slice(0, 200)}`);
+    }
 }
 
 function decodeBody(res, body) {
@@ -99,18 +107,33 @@ function decodeBody(res, body) {
 }
 
 function sendTelegram(message) {
+    return telegramApi('sendMessage', {
+        chat_id: TG_CHAT_ID,
+        text: message,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+    }).then(() => true).catch((e) => {
+        log(`⚠️ TG通知发送失败: ${e.message}`);
+        return false;
+    });
+}
+
+function telegramApi(method, payload) {
     if (!TG_BOT_TOKEN || !TG_CHAT_ID) {
         log('⚠️ 未配置TG环境变量，跳过通知');
         return Promise.resolve();
     }
 
     return new Promise((resolve) => {
-        const text = encodeURIComponent(message);
-        const tgPath = `/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=${text}&parse_mode=HTML&disable_web_page_preview=true`;
+        const body = JSON.stringify(payload);
         const options = {
             hostname: 'api.telegram.org',
-            path: tgPath,
-            method: 'GET'
+            path: `/bot${TG_BOT_TOKEN}/${method}`,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body)
+            }
         };
         const req = https.request(options, (res) => {
             let data = '';
@@ -118,16 +141,71 @@ function sendTelegram(message) {
             res.on('end', () => {
                 try {
                     const json = JSON.parse(data);
-                    if (!json.ok) log(`⚠️ TG通知发送失败: ${json.description}`);
-                } catch {}
-                resolve();
+                    if (!json.ok) {
+                        throw new Error(json.description || `Telegram ${method} 失败`);
+                    }
+                    resolve(json);
+                } catch (e) {
+                    resolve({ ok: false, error: e.message || `Telegram ${method} 响应异常` });
+                }
             });
         });
         req.on('error', (e) => {
-            log(`⚠️ TG通知发送异常: ${e.message}`);
-            resolve();
+            resolve({ ok: false, error: e.message });
         });
+        req.write(body);
         req.end();
+    }).then((json) => {
+        if (json && json.ok === false) {
+            throw new Error(json.error || `Telegram ${method} 失败`);
+        }
+        return json;
+    });
+}
+
+async function sendTelegramMedia(mediaItems) {
+    if (!TG_BOT_TOKEN || !TG_CHAT_ID || mediaItems.length === 0) {
+        return false;
+    }
+
+    const chunks = [];
+    for (let i = 0; i < mediaItems.length; i += MAX_MEDIA_GROUP_ITEMS) {
+        chunks.push(mediaItems.slice(i, i + MAX_MEDIA_GROUP_ITEMS));
+    }
+
+    try {
+        for (const chunk of chunks) {
+            if (chunk.length === 1) {
+                await sendTelegramSingleMedia(chunk[0]);
+            } else {
+                await telegramApi('sendMediaGroup', {
+                    chat_id: TG_CHAT_ID,
+                    media: chunk.map(item => ({
+                        type: item.type,
+                        media: item.url
+                    }))
+                });
+            }
+            await wait(800);
+        }
+        return true;
+    } catch (e) {
+        log(`⚠️ TG媒体发送失败: ${e.message}`);
+        return false;
+    }
+}
+
+function sendTelegramSingleMedia(item) {
+    if (item.type === 'video') {
+        return telegramApi('sendVideo', {
+            chat_id: TG_CHAT_ID,
+            video: item.url
+        });
+    }
+
+    return telegramApi('sendPhoto', {
+        chat_id: TG_CHAT_ID,
+        photo: item.url
     });
 }
 
@@ -213,6 +291,20 @@ function buildHeaders(account) {
     };
 }
 
+function buildDetailHeaders(account) {
+    return {
+        'Host': SIGN_HOST,
+        'Cookie': account.cookie,
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'sec-fetch-site': 'none',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document',
+        'user-agent': account.ua,
+        'accept-language': 'zh-CN,zh-Hans;q=0.9',
+        'Accept-Encoding': ACCEPT_ENCODING
+    };
+}
+
 function loadState() {
     try {
         if (!fs.existsSync(STATE_FILE)) return { seen: {} };
@@ -272,7 +364,7 @@ async function searchKeyword(rule, account) {
     const url = `${SIGN_BASE_URL}/mag/circle/v1/Forum/threadSearch?fid=&keywords=${encodeURIComponent(keyword)}`;
 
     log(`搜索「${keyword}」，使用账号: ${account.name}`);
-    const result = await httpGet(url, buildHeaders(account));
+    const result = await httpGetJson(url, buildHeaders(account));
     if (!result || result.success !== true) {
         const detail = result && result.msg ? result.msg : String(JSON.stringify(result) || result).slice(0, 200);
         throw new Error(detail);
@@ -280,53 +372,93 @@ async function searchKeyword(rule, account) {
     return extractList(result);
 }
 
-async function processKeywordRule(rule, account, state, notifySections, errors) {
+async function fetchThreadDetail(item, accounts, preferredAccount) {
+    const url = buildThreadUrl(item, true);
+    const orderedAccounts = preferredAccount
+        ? [preferredAccount].concat(accounts.filter(account => account !== preferredAccount))
+        : accounts;
+    let lastError = null;
+
+    for (const account of orderedAccounts) {
+        try {
+            log(`拉取帖子详情 tid=${itemId(item)}，使用账号: ${account.name}`);
+            const html = await httpGetText(url, buildDetailHeaders(account));
+            return extractRow(html);
+        } catch (e) {
+            lastError = e;
+            log(`⚠️ 账号 ${account.name} 拉取帖子详情失败: ${e.message}`);
+        }
+    }
+
+    throw lastError || new Error(`拉取帖子详情失败: ${itemId(item)}`);
+}
+
+async function processKeywordRule(rule, account, accounts, state, errors) {
     try {
         const list = await searchKeyword(rule, account);
         const currentIds = list.map(itemId).filter(Boolean);
         const hadBaseline = Array.isArray(state.seen[rule.keyword]);
         const seenSet = new Set(state.seen[rule.keyword] || []);
-        const newMatches = [];
 
+        if (!hadBaseline) {
+            state.seen[rule.keyword] = trimSeenIds([], currentIds);
+            log(`「${rule.keyword}」首次运行，记录 ${currentIds.length} 条基线，不发送历史数据`);
+            return { initialized: true, notified: 0 };
+        }
+
+        const newMatches = [];
         for (const item of list) {
             const id = itemId(item);
             if (!id || seenSet.has(id)) continue;
             if (itemMatchesRule(item, rule)) newMatches.push(item);
         }
 
-        state.seen[rule.keyword] = trimSeenIds(state.seen[rule.keyword], currentIds);
-
-        if (!hadBaseline) {
-            log(`「${rule.keyword}」首次运行，记录 ${currentIds.length} 条基线，不发送历史数据`);
-            return { initialized: true };
-        }
+        const failedIds = new Set();
+        let notified = 0;
 
         if (newMatches.length > 0) {
             newMatches.sort((a, b) => Number(a.create_time || 0) - Number(b.create_time || 0));
-            const lines = newMatches.map(formatItem).join('\n');
-            notifySections.push(`<b>${escapeHtml(rule.keyword)}</b>\n${lines}`);
+            for (const item of newMatches) {
+                const id = itemId(item);
+                try {
+                    const row = await fetchThreadDetail(item, accounts, account);
+                    await notifyKeywordMatch(rule, item, row);
+                    notified++;
+                    await wait(1000);
+                } catch (e) {
+                    failedIds.add(id);
+                    const errMsg = `「${rule.keyword}」新帖 ${id} 详情失败: ${e.message}`;
+                    errors.push(errMsg);
+                    log(`⚠️ ${errMsg}`);
+                }
+            }
             log(`「${rule.keyword}」发现 ${newMatches.length} 条新增匹配`);
         } else {
             log(`「${rule.keyword}」无新增匹配`);
         }
 
-        return { initialized: false };
+        const safeCurrentIds = currentIds.filter(id => !failedIds.has(id));
+        state.seen[rule.keyword] = trimSeenIds(state.seen[rule.keyword], safeCurrentIds);
+
+        return { initialized: false, notified };
     } catch (e) {
         const errMsg = `「${rule.keyword}」搜索失败: ${e.message}`;
         errors.push(errMsg);
         log(`⚠️ ${errMsg}`);
-        return { initialized: false };
+        return { initialized: false, notified: 0 };
     }
 }
 
-async function processKeywordGroup(group, state, notifySections, errors) {
+async function processKeywordGroup(group, state, errors, accounts) {
     let initializedCount = 0;
+    let notifiedCount = 0;
     const keywords = group.rules.map(rule => rule.keyword).join('、');
     log(`账号 ${group.account.name} 分配关键词: ${keywords}`);
 
     for (let i = 0; i < group.rules.length; i++) {
-        const result = await processKeywordRule(group.rules[i], group.account, state, notifySections, errors);
+        const result = await processKeywordRule(group.rules[i], group.account, accounts, state, errors);
         if (result.initialized) initializedCount++;
+        notifiedCount += result.notified;
 
         if (i < group.rules.length - 1) {
             log(`账号 ${group.account.name} 等待 ${(ACCOUNT_KEYWORD_DELAY_MS / 1000).toFixed(0)} 秒后继续...`);
@@ -334,7 +466,7 @@ async function processKeywordGroup(group, state, notifySections, errors) {
         }
     }
 
-    return initializedCount;
+    return { initializedCount, notifiedCount };
 }
 
 function extractList(result) {
@@ -369,29 +501,247 @@ function trimSeenIds(ids, latestIds) {
     return merged;
 }
 
-function formatItem(item) {
-    const subject = escapeHtml(item.subject || '无标题');
-    const url = buildThreadUrl(item);
-    const forum = escapeHtml(item.forum_name || '');
-    const user = escapeHtml(item.user_name || '');
-    const time = escapeHtml(formatTime(item));
-    const meta = [forum, user, time].filter(Boolean).join(' / ');
-    return `- <a href="${escapeHtml(url)}">${subject}</a>${meta ? `\n  ${meta}` : ''}`;
+async function notifyKeywordMatch(rule, item, row) {
+    const media = collectMedia(row, item);
+    await sendTelegram(buildTelegramMessage(rule, item, row, media));
+
+    if (media.length > 0) {
+        const mediaLinkMessages = buildMediaLinkMessages(rule, item, row, media);
+        for (const message of mediaLinkMessages) {
+            await sendTelegram(message);
+            await wait(500);
+        }
+
+        const mediaSent = await sendTelegramMedia(media);
+        if (!mediaSent) {
+            log('媒体直发失败，已在通知中保留可点击链接');
+        }
+    }
 }
 
-function buildThreadUrl(item) {
+function extractRow(html) {
+    const marker = String(html || '').match(/var\s+row\s*=/);
+    if (!marker) throw new Error('详情页未找到 var row');
+
+    const start = html.indexOf('{', marker.index);
+    if (start === -1) throw new Error('详情页 row 不是对象');
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = start; i < html.length; i++) {
+        const ch = html[i];
+        if (inString) {
+            if (escape) {
+                escape = false;
+            } else if (ch === '\\') {
+                escape = true;
+            } else if (ch === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (ch === '"') {
+            inString = true;
+        } else if (ch === '{') {
+            depth++;
+        } else if (ch === '}') {
+            depth--;
+            if (depth === 0) {
+                return JSON.parse(html.slice(start, i + 1));
+            }
+        }
+    }
+
+    throw new Error('详情页 row JSON 不完整');
+}
+
+function buildThreadUrl(item, includeTheme) {
     const link = String(item.link || '');
-    if (/^https?:\/\//i.test(link)) return link;
-    if (link) return `${SIGN_BASE_URL}${link}`;
-    const tid = itemId(item);
-    return `${SIGN_BASE_URL}/mag/circle/v1/forum/threadViewPage?tid=${encodeURIComponent(tid)}`;
+    let url = '';
+    if (/^https?:\/\//i.test(link)) {
+        url = link;
+    } else if (link) {
+        url = `${SIGN_BASE_URL}${link}`;
+    } else {
+        const tid = itemId(item);
+        url = `${SIGN_BASE_URL}/mag/circle/v1/forum/threadViewPage?tid=${encodeURIComponent(tid)}`;
+    }
+
+    if (includeTheme && url.indexOf('themecolor=') === -1) {
+        url += `${url.indexOf('?') === -1 ? '?' : '&'}themecolor=111111`;
+    }
+
+    return url;
 }
 
-function formatTime(item) {
+function htmlToText(html) {
+    let text = String(html || '');
+    text = text.replace(/<script[\s\S]*?<\/script>/gi, '');
+    text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
+    text = text.replace(/<img\b[^>]*>/gi, '\n');
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+    text = text.replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n');
+    text = text.replace(/<[^>]+>/g, '');
+    text = decodeHtmlEntities(text);
+    text = text.replace(/\r/g, '\n');
+    text = text.replace(/[ \t\f\v]+/g, ' ');
+    text = text.replace(/\u00a0/g, ' ');
+    text = text.split('\n').map(line => line.trim()).join('\n');
+    text = text.replace(/\n{3,}/g, '\n\n').trim();
+    return text;
+}
+
+function decodeHtmlEntities(value) {
+    return String(value || '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)));
+}
+
+function collectMedia(row, item) {
+    const media = [];
+    const add = (type, url) => {
+        url = normalizeMediaUrl(type, url);
+        if (!url || !/^https?:\/\//i.test(url)) return;
+        if (media.some(item => item.url === url)) return;
+        media.push({ type, url });
+    };
+
+    if (Array.isArray(row.pics)) row.pics.forEach(url => add('photo', url));
+    if (Array.isArray(item.pics)) item.pics.forEach(url => add('photo', url));
+    if (Array.isArray(item.pics_arr)) {
+        item.pics_arr.forEach(pic => add('photo', pic && (pic.url || pic.tburl)));
+    }
+
+    add('video', row.video_url);
+    add('video', row.video);
+    add('video', item.video_url);
+    collectVideoArray(row.videos, add);
+    collectVideoArray(item.videos, add);
+
+    if (Array.isArray(row.video_pics)) row.video_pics.forEach(url => add('photo', url));
+
+    const content = String(row.content || '');
+    content.replace(/<img\b[^>]*(?:data-original|src)=["']([^"']+)["'][^>]*>/gi, (_, url) => {
+        add('photo', url);
+        return '';
+    });
+    content.replace(/<(?:video|source)\b[^>]*src=["']([^"']+)["'][^>]*>/gi, (_, url) => {
+        add('video', url);
+        return '';
+    });
+
+    return media.slice(0, MAX_MEDIA_ITEMS);
+}
+
+function collectVideoArray(value, add) {
+    if (!value) return;
+    const list = Array.isArray(value) ? value : [value];
+
+    for (const item of list) {
+        if (!item) continue;
+        if (typeof item === 'string') {
+            add('video', item);
+            continue;
+        }
+        if (typeof item !== 'object') continue;
+
+        add('video', item.video_url || item.videoUrl || item.url || item.src || item.play_url || item.playUrl);
+        add('photo', item.cover_url || item.coverUrl || item.cover || item.pic || item.pic_url || item.picUrl || item.thumb || item.tburl);
+    }
+}
+
+function normalizeMediaUrl(type, url) {
+    url = decodeHtmlEntities(String(url || '').trim());
+    if (!url) return '';
+    if (url.indexOf('//') === 0) url = `https:${url}`;
+    if (type === 'photo') return url.replace(/\?.*$/, '');
+    return url;
+}
+
+function formatTime(row, item) {
+    if (row.create_time_ago) return row.create_time_ago;
     if (item.dateline) return item.dateline;
-    const ts = Number(item.create_time || 0);
+    const ts = Number(row.create_time || item.create_time || 0);
     if (!ts) return '';
     return new Date(ts * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+}
+
+function truncateText(text, maxLen) {
+    text = String(text || '');
+    if (text.length <= maxLen) return text;
+    return `${text.slice(0, maxLen)}\n...`;
+}
+
+function buildTelegramMessage(rule, item, row, media) {
+    const title = row.title || item.subject || '无标题';
+    const url = buildThreadUrl(item, false);
+    const author = row.user_name || item.user_name || '';
+    const forum = row.forum_name || item.forum_name || '';
+    const time = formatTime(row, item);
+    const replyCount = row.reply_count != null ? row.reply_count : item.reply_count;
+    const click = row.click != null ? row.click : item.click;
+    const content = truncateText(htmlToText(row.content || row.all_des || row.des || ''), MAX_CONTENT_LENGTH);
+    const mediaText = formatMediaSummary(media);
+
+    const meta = [
+        `关键词: ${escapeHtml(rule.keyword)}`,
+        author ? `作者: ${escapeHtml(author)}` : '',
+        forum ? `版块: ${escapeHtml(forum)}` : '',
+        time ? `时间: ${escapeHtml(time)}` : '',
+        replyCount != null && replyCount !== '' ? `回复: ${escapeHtml(replyCount)}` : '',
+        click != null && click !== '' ? `阅读: ${escapeHtml(click)}` : '',
+        mediaText ? `媒体: ${escapeHtml(mediaText)}` : ''
+    ].filter(Boolean).join('\n');
+
+    return `<b>${scriptName}</b>\n发现新增匹配\n\n标题: ${escapeHtml(title)}\n链接: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n${meta}${content ? `\n\n内容:\n<pre>${escapeHtml(content)}</pre>` : ''}`;
+}
+
+function formatMediaSummary(media) {
+    const photoCount = media.filter(item => item.type === 'photo').length;
+    const videoCount = media.filter(item => item.type === 'video').length;
+    return [
+        photoCount > 0 ? `${photoCount} 张图片` : '',
+        videoCount > 0 ? `${videoCount} 个视频` : ''
+    ].filter(Boolean).join('，');
+}
+
+function formatMediaLinkSection(media) {
+    const lines = media.map((item, index) => {
+        const label = item.type === 'video' ? '视频' : '图片';
+        const url = escapeHtml(item.url);
+        return `${index + 1}. ${label}: <a href="${url}">${url}</a>`;
+    });
+    return lines.join('\n');
+}
+
+function buildMediaLinkMessages(rule, item, row, media) {
+    if (!media.length) return [];
+
+    const title = row.title || item.subject || '无标题';
+    const url = buildThreadUrl(item, false);
+    const header = `<b>${scriptName}</b>\n关键词「${escapeHtml(rule.keyword)}」媒体链接\n${escapeHtml(title)}\n帖子: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n`;
+    const lines = formatMediaLinkSection(media).split('\n').filter(Boolean);
+    const messages = [];
+    let current = `${header}\n`;
+
+    for (const line of lines) {
+        if ((current + line + '\n').length > 3600 && current.trim() !== header.trim()) {
+            messages.push(current.trim());
+            current = `${header}\n`;
+        }
+        current += `${line}\n`;
+    }
+
+    if (current.trim() !== header.trim()) messages.push(current.trim());
+    return messages;
 }
 
 function escapeHtml(value) {
@@ -400,22 +750,6 @@ function escapeHtml(value) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
-}
-
-function splitTelegramMessages(sections) {
-    const messages = [];
-    let current = `<b>${scriptName}</b>\n发现新增记录`;
-
-    for (const section of sections) {
-        if ((current + '\n\n' + section).length > 3500) {
-            messages.push(current);
-            current = `<b>${scriptName}</b>\n发现新增记录`;
-        }
-        current += '\n\n' + section;
-    }
-
-    messages.push(current);
-    return messages;
 }
 
 !(async () => {
@@ -432,25 +766,19 @@ function splitTelegramMessages(sections) {
     }
 
     const state = loadState();
-    const notifySections = [];
     const errors = [];
     const keywordGroups = buildKeywordGroups(accounts);
-    const initializedCounts = await Promise.all(
-        keywordGroups.map(group => processKeywordGroup(group, state, notifySections, errors))
+    const groupResults = await Promise.all(
+        keywordGroups.map(group => processKeywordGroup(group, state, errors, accounts))
     );
-    const initializedCount = initializedCounts.reduce((sum, count) => sum + count, 0);
+    const initializedCount = groupResults.reduce((sum, result) => sum + result.initializedCount, 0);
+    const notifiedCount = groupResults.reduce((sum, result) => sum + result.notifiedCount, 0);
 
     saveState(state);
 
-    if (notifySections.length > 0) {
-        for (const message of splitTelegramMessages(notifySections)) {
-            await sendTelegram(message);
-        }
-    }
-
     if (errors.length > 0) {
         await sendTelegram(`<b>${scriptName}</b>\n${errors.map(escapeHtml).join('\n')}`);
-    } else if (notifySections.length === 0) {
+    } else if (notifiedCount === 0) {
         const initText = initializedCount > 0 ? `，初始化 ${initializedCount} 个关键词基线` : '';
         log(`本次无新增通知${initText}`);
     }
