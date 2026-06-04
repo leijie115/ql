@@ -5,7 +5,8 @@
  * 配合 ppx.plugin 使用，参数通过 [Argument] 配置
  */
 
-const MIN_COMMENTS = 5;
+const MIN_STAT_COMMENT_COUNT = 21;
+const MIN_COLLECT_COMMENTS = 5;
 const MAX_ACTIVE_COMMENT_REQUESTS = 20;
 const NOTIFY_MAX_LEN = 520;
 const ENABLE_LOON_NOTIFY = false;
@@ -523,27 +524,28 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
     const comments = extractComments(commentsByItemId[id] || []);
     const commentCount = Math.max(commentCountByItemId[id] || 0, commentCountOf(null, item, comments));
 
-    if (images.length > 0 && commentCount >= MIN_COMMENTS) candidateCount++;
-    if (images.length === 0 || commentCount < MIN_COMMENTS) continue;
+    if (images.length > 0 && commentCount >= MIN_STAT_COMMENT_COUNT) candidateCount++;
+    if (images.length === 0 || commentCount < MIN_STAT_COMMENT_COUNT) continue;
 
-    if (comments.length >= MIN_COMMENTS) {
+    if (comments.length >= MIN_COLLECT_COMMENTS) {
       await collect(serverUrl, buildPayload(item, comments, 'feed', id));
       successCount++;
       continue;
     }
 
-    activeTargets.push({ id, item, cellType: cellTypeById[id] || 1 });
+    activeTargets.push({ id, item, cellType: cellTypeById[id] || 1, commentCount });
   }
 
   notifyPPX(
     'Feed 候选统计',
-    `帖子=${Object.keys(itemById).length} 评论卡=${commentCellCount} 候选=${candidateCount} 需主动=${activeTargets.length}`
+    `帖子=${Object.keys(itemById).length} 评论卡=${commentCellCount} stats>=${MIN_STAT_COMMENT_COUNT} 候选=${candidateCount} 需主动=${activeTargets.length}`
   );
 
   for (const target of activeTargets.slice(0, MAX_ACTIVE_COMMENT_REQUESTS)) {
     activeTried++;
 
     try {
+      notifyPPX('准备主动拉评论', `item=${target.id} stats=${target.commentCount}`);
       const page = await fetchCommentPage(reqUrl, reqHeaders, target.id, target.cellType);
       const data = page.data.data || {};
       const cellComments = data.cell_comments || [];
@@ -552,7 +554,7 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
       const payload = buildPayload(item, comments, `active_comment:${page.mode}`);
       payload.item_id = payload.item_id || target.id;
 
-      if (payload.images.length === 0 || payload.comments.length < MIN_COMMENTS) {
+      if (payload.images.length === 0 || payload.comments.length < MIN_COLLECT_COMMENTS) {
         notifyPPX(
           '主动评论不足',
           `item=${target.id} images=${payload.images.length} comments=${payload.comments.length}`
@@ -573,7 +575,7 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
 
   notifyPPX(
     'Feed 已拦截',
-    `共 ${items.length} 条，评论卡 ${commentCellCount} 条，候选 ${candidateCount} 条，主动 ${activeTried}/${activeTargets.length} 条，上报 ${successCount} 条，失败 ${activeFailed} 条`
+    `共 ${items.length} 条，评论卡 ${commentCellCount} 条，stats>=${MIN_STAT_COMMENT_COUNT} 候选 ${candidateCount} 条，主动 ${activeTried}/${activeTargets.length} 条，上报 ${successCount} 条，失败 ${activeFailed} 条`
   );
 
   return {
@@ -613,7 +615,7 @@ async function handleComments(commentData, serverUrl, reqUrl) {
   const payload = buildPayload(item, comments, 'comment');
   payload.item_id = payload.item_id || itemId;
 
-  if (payload.images.length === 0 || payload.comments.length < MIN_COMMENTS) {
+  if (payload.images.length === 0 || payload.comments.length < MIN_COLLECT_COMMENTS) {
     notifyPPX(
       '评论不足',
       `cell=${payload.item_id} images=${payload.images.length} comments=${payload.comments.length}`
