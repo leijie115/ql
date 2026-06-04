@@ -1,5 +1,5 @@
 /*
-cron: 0 * * * *
+cron: 0,30 * * * *
 环境变量: SDGUN  格式: 账号描述#uid#完整cookie字符串[#完整User-Agent]  多账号用 @ 或换行分隔
 TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
 * new Env('水弹关键词监控')
