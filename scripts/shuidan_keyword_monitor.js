@@ -32,6 +32,8 @@ const KEYWORD_RULES = [
     { keyword: '城市虎s5' },
     { keyword: '城市虎g19' }
 ];
+const KEYWORD_GROUP_SIZES = [2, 2, 1];
+const ACCOUNT_KEYWORD_DELAY_MS = 20000;
 
 const USER_AGENTS = [
     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MAGAPPX|6.1.3-4.0.0-132|iOS 18.5 iPhone17,2|shuidan|E128D1C5-DBD8-4F24-906D-9922B96B883B|6e572d3917ff565534f8ef11f6b06644|43b0e472c0e730535bbbe4eee5175cca|ec7470d175c5bd16f08431b26606ddfa',
@@ -229,10 +231,6 @@ function saveState(state) {
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 }
 
-function getRandomDelay() {
-    return Math.floor(Math.random() * 7000) + 18000;
-}
-
 function shuffled(list) {
     const arr = list.slice();
     for (let i = arr.length - 1; i > 0; i--) {
@@ -242,27 +240,101 @@ function shuffled(list) {
     return arr;
 }
 
-async function searchKeyword(rule, accounts) {
-    const keyword = rule.keyword;
-    const url = `${SIGN_BASE_URL}/mag/circle/v1/Forum/threadSearch?fid=&keywords=${encodeURIComponent(keyword)}`;
-    let lastError = null;
+function buildKeywordGroups(accounts) {
+    const shuffledRules = shuffled(KEYWORD_RULES);
+    const selectedAccounts = accounts.slice(0, KEYWORD_GROUP_SIZES.length);
 
-    for (const account of shuffled(accounts)) {
-        try {
-            log(`搜索「${keyword}」，使用账号: ${account.name}`);
-            const result = await httpGet(url, buildHeaders(account));
-            if (!result || result.success !== true) {
-                const detail = result && result.msg ? result.msg : String(JSON.stringify(result) || result).slice(0, 200);
-                throw new Error(detail);
-            }
-            return extractList(result);
-        } catch (e) {
-            lastError = e;
-            log(`⚠️ 账号 ${account.name} 搜索「${keyword}」失败: ${e.message}`);
+    if (selectedAccounts.length < KEYWORD_GROUP_SIZES.length) {
+        log(`⚠️ 可用账号少于 3 个，将按 ${selectedAccounts.length} 个账号分摊关键词`);
+        const fallbackGroups = selectedAccounts.map(account => ({ account, rules: [] }));
+        for (let i = 0; i < shuffledRules.length; i++) {
+            fallbackGroups[i % fallbackGroups.length].rules.push(shuffledRules[i]);
+        }
+        return fallbackGroups.filter(group => group.rules.length > 0);
+    }
+
+    const groups = [];
+    let offset = 0;
+
+    for (let i = 0; i < KEYWORD_GROUP_SIZES.length && offset < shuffledRules.length; i++) {
+        const rules = shuffledRules.slice(offset, offset + KEYWORD_GROUP_SIZES[i]);
+        offset += KEYWORD_GROUP_SIZES[i];
+        if (rules.length > 0) {
+            groups.push({ account: selectedAccounts[i], rules });
         }
     }
 
-    throw lastError || new Error(`搜索「${keyword}」失败`);
+    return groups;
+}
+
+async function searchKeyword(rule, account) {
+    const keyword = rule.keyword;
+    const url = `${SIGN_BASE_URL}/mag/circle/v1/Forum/threadSearch?fid=&keywords=${encodeURIComponent(keyword)}`;
+
+    log(`搜索「${keyword}」，使用账号: ${account.name}`);
+    const result = await httpGet(url, buildHeaders(account));
+    if (!result || result.success !== true) {
+        const detail = result && result.msg ? result.msg : String(JSON.stringify(result) || result).slice(0, 200);
+        throw new Error(detail);
+    }
+    return extractList(result);
+}
+
+async function processKeywordRule(rule, account, state, notifySections, errors) {
+    try {
+        const list = await searchKeyword(rule, account);
+        const currentIds = list.map(itemId).filter(Boolean);
+        const hadBaseline = Array.isArray(state.seen[rule.keyword]);
+        const seenSet = new Set(state.seen[rule.keyword] || []);
+        const newMatches = [];
+
+        for (const item of list) {
+            const id = itemId(item);
+            if (!id || seenSet.has(id)) continue;
+            if (itemMatchesRule(item, rule)) newMatches.push(item);
+        }
+
+        state.seen[rule.keyword] = trimSeenIds(state.seen[rule.keyword], currentIds);
+
+        if (!hadBaseline) {
+            log(`「${rule.keyword}」首次运行，记录 ${currentIds.length} 条基线，不发送历史数据`);
+            return { initialized: true };
+        }
+
+        if (newMatches.length > 0) {
+            newMatches.sort((a, b) => Number(a.create_time || 0) - Number(b.create_time || 0));
+            const lines = newMatches.map(formatItem).join('\n');
+            notifySections.push(`<b>${escapeHtml(rule.keyword)}</b>\n${lines}`);
+            log(`「${rule.keyword}」发现 ${newMatches.length} 条新增匹配`);
+        } else {
+            log(`「${rule.keyword}」无新增匹配`);
+        }
+
+        return { initialized: false };
+    } catch (e) {
+        const errMsg = `「${rule.keyword}」搜索失败: ${e.message}`;
+        errors.push(errMsg);
+        log(`⚠️ ${errMsg}`);
+        return { initialized: false };
+    }
+}
+
+async function processKeywordGroup(group, state, notifySections, errors) {
+    let initializedCount = 0;
+    const keywords = group.rules.map(rule => rule.keyword).join('、');
+    log(`账号 ${group.account.name} 分配关键词: ${keywords}`);
+
+    for (let i = 0; i < group.rules.length; i++) {
+        const result = await processKeywordRule(group.rules[i], group.account, state, notifySections, errors);
+        if (result.initialized) initializedCount++;
+
+        if (i < group.rules.length - 1) {
+            log(`账号 ${group.account.name} 等待 ${(ACCOUNT_KEYWORD_DELAY_MS / 1000).toFixed(0)} 秒后继续...`);
+            await wait(ACCOUNT_KEYWORD_DELAY_MS);
+        }
+    }
+
+    return initializedCount;
 }
 
 function extractList(result) {
@@ -362,48 +434,11 @@ function splitTelegramMessages(sections) {
     const state = loadState();
     const notifySections = [];
     const errors = [];
-    let initializedCount = 0;
-
-    for (let i = 0; i < KEYWORD_RULES.length; i++) {
-        const rule = KEYWORD_RULES[i];
-        try {
-            const list = await searchKeyword(rule, accounts);
-            const currentIds = list.map(itemId).filter(Boolean);
-            const hadBaseline = Array.isArray(state.seen[rule.keyword]);
-            const seenSet = new Set(state.seen[rule.keyword] || []);
-            const newMatches = [];
-
-            for (const item of list) {
-                const id = itemId(item);
-                if (!id || seenSet.has(id)) continue;
-                if (itemMatchesRule(item, rule)) newMatches.push(item);
-            }
-
-            state.seen[rule.keyword] = trimSeenIds(state.seen[rule.keyword], currentIds);
-
-            if (!hadBaseline) {
-                initializedCount++;
-                log(`「${rule.keyword}」首次运行，记录 ${currentIds.length} 条基线，不发送历史数据`);
-            } else if (newMatches.length > 0) {
-                newMatches.sort((a, b) => Number(a.create_time || 0) - Number(b.create_time || 0));
-                const lines = newMatches.map(formatItem).join('\n');
-                notifySections.push(`<b>${escapeHtml(rule.keyword)}</b>\n${lines}`);
-                log(`「${rule.keyword}」发现 ${newMatches.length} 条新增匹配`);
-            } else {
-                log(`「${rule.keyword}」无新增匹配`);
-            }
-        } catch (e) {
-            const errMsg = `「${rule.keyword}」搜索失败: ${e.message}`;
-            errors.push(errMsg);
-            log(`⚠️ ${errMsg}`);
-        }
-
-        if (i < KEYWORD_RULES.length - 1) {
-            const delay = getRandomDelay();
-            log(`等待 ${(delay / 1000).toFixed(1)} 秒后继续...`);
-            await wait(delay);
-        }
-    }
+    const keywordGroups = buildKeywordGroups(accounts);
+    const initializedCounts = await Promise.all(
+        keywordGroups.map(group => processKeywordGroup(group, state, notifySections, errors))
+    );
+    const initializedCount = initializedCounts.reduce((sum, count) => sum + count, 0);
 
     saveState(state);
 
