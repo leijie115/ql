@@ -747,12 +747,11 @@ function buildTelegramMediaCaption(rule, item, row, media) {
         click != null && click !== '' ? `阅读: ${escapeHtml(click)}` : '',
         mediaText ? `媒体: ${escapeHtml(mediaText)}` : ''
     ].filter(Boolean).join('\n');
-    const mediaLinks = formatMediaLinkSection(media);
     const base = `<b>${scriptName}</b>\n发现新增匹配\n\n标题: ${escapeHtml(title)}\n链接: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n${meta}`;
 
-    for (const maxContentLength of [280, 160, 80, 0]) {
+    for (const maxContentLength of [520, 360, 220, 120, 0]) {
         const contentText = maxContentLength > 0 ? truncateText(content, maxContentLength) : '';
-        const caption = `${base}${contentText ? `\n\n内容:\n${escapeHtml(contentText)}` : ''}${mediaLinks ? `\n\n媒体链接:\n${mediaLinks}` : ''}`;
+        const caption = `${base}${contentText ? `\n\n内容:\n${escapeHtml(contentText)}` : ''}`;
         if (caption.length <= TELEGRAM_CAPTION_LIMIT) return caption;
     }
 
