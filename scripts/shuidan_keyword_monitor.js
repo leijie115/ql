@@ -7,6 +7,7 @@ TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
 
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
 const { log } = console;
@@ -22,6 +23,7 @@ const MAX_CONTENT_LENGTH = 1600;
 const MAX_MEDIA_ITEMS = 10;
 const MAX_MEDIA_GROUP_ITEMS = 10;
 const TELEGRAM_CAPTION_LIMIT = 1000;
+const MAX_UPLOAD_MEDIA_BYTES = 20 * 1024 * 1024;
 const ACCEPT_ENCODING = [
     'gzip',
     'deflate',
@@ -169,42 +171,108 @@ async function sendTelegramMedia(mediaItems, caption = '') {
         return false;
     }
 
+    try {
+        await sendTelegramMediaUpload(mediaItems, caption);
+        return true;
+    } catch (e) {
+        log(`⚠️ TG媒体上传发送失败: ${e.message}`);
+    }
+
+    try {
+        await sendTelegramMediaByUrl(mediaItems, caption);
+        return true;
+    } catch (e) {
+        log(`⚠️ TG媒体URL发送失败: ${e.message}`);
+        return false;
+    }
+}
+
+async function sendTelegramMediaUpload(mediaItems, caption = '') {
+    const prepared = [];
+    for (let i = 0; i < mediaItems.length; i++) {
+        prepared.push(await downloadMediaFile(mediaItems[i], i));
+    }
+
+    const chunks = [];
+    for (let i = 0; i < prepared.length; i += MAX_MEDIA_GROUP_ITEMS) {
+        chunks.push(prepared.slice(i, i + MAX_MEDIA_GROUP_ITEMS));
+    }
+
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        const chunk = chunks[chunkIndex];
+        if (chunk.length === 1) {
+            await sendTelegramSingleMediaUpload(chunk[0], chunkIndex === 0 ? caption : '');
+        } else {
+            const media = chunk.map((item, itemIndex) => {
+                const data = {
+                    type: item.type,
+                    media: `attach://${item.fieldName}`
+                };
+                if (chunkIndex === 0 && itemIndex === 0 && caption) {
+                    data.caption = caption;
+                    data.parse_mode = 'HTML';
+                }
+                return data;
+            });
+
+            const fields = {
+                chat_id: TG_CHAT_ID,
+                media: JSON.stringify(media)
+            };
+            await telegramApiMultipart('sendMediaGroup', fields, chunk);
+        }
+        await wait(800);
+    }
+}
+
+function sendTelegramSingleMediaUpload(item, caption = '') {
+    const method = item.type === 'video' ? 'sendVideo' : 'sendPhoto';
+    const mediaField = item.type === 'video' ? 'video' : 'photo';
+    const fields = {
+        chat_id: TG_CHAT_ID
+    };
+    if (caption) {
+        fields.caption = caption;
+        fields.parse_mode = 'HTML';
+    }
+
+    return telegramApiMultipart(method, fields, [{
+        ...item,
+        fieldName: mediaField
+    }]);
+}
+
+async function sendTelegramMediaByUrl(mediaItems, caption = '') {
     const chunks = [];
     for (let i = 0; i < mediaItems.length; i += MAX_MEDIA_GROUP_ITEMS) {
         chunks.push(mediaItems.slice(i, i + MAX_MEDIA_GROUP_ITEMS));
     }
 
-    try {
-        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-            const chunk = chunks[chunkIndex];
-            if (chunk.length === 1) {
-                await sendTelegramSingleMedia(chunk[0], chunkIndex === 0 ? caption : '');
-            } else {
-                await telegramApi('sendMediaGroup', {
-                    chat_id: TG_CHAT_ID,
-                    media: chunk.map((item, itemIndex) => {
-                        const data = {
-                            type: item.type,
-                            media: item.url
-                        };
-                        if (chunkIndex === 0 && itemIndex === 0 && caption) {
-                            data.caption = caption;
-                            data.parse_mode = 'HTML';
-                        }
-                        return data;
-                    })
-                });
-            }
-            await wait(800);
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        const chunk = chunks[chunkIndex];
+        if (chunk.length === 1) {
+            await sendTelegramSingleMediaByUrl(chunk[0], chunkIndex === 0 ? caption : '');
+        } else {
+            await telegramApi('sendMediaGroup', {
+                chat_id: TG_CHAT_ID,
+                media: chunk.map((item, itemIndex) => {
+                    const data = {
+                        type: item.type,
+                        media: item.url
+                    };
+                    if (chunkIndex === 0 && itemIndex === 0 && caption) {
+                        data.caption = caption;
+                        data.parse_mode = 'HTML';
+                    }
+                    return data;
+                })
+            });
         }
-        return true;
-    } catch (e) {
-        log(`⚠️ TG媒体发送失败: ${e.message}`);
-        return false;
+        await wait(800);
     }
 }
 
-function sendTelegramSingleMedia(item, caption = '') {
+function sendTelegramSingleMediaByUrl(item, caption = '') {
     const captionFields = caption
         ? { caption, parse_mode: 'HTML' }
         : {};
@@ -222,6 +290,158 @@ function sendTelegramSingleMedia(item, caption = '') {
         photo: item.url,
         ...captionFields
     });
+}
+
+function telegramApiMultipart(method, fields, files) {
+    if (!TG_BOT_TOKEN || !TG_CHAT_ID) {
+        log('⚠️ 未配置TG环境变量，跳过通知');
+        return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+        const boundary = `----sdgun${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+        const bodyParts = [];
+
+        for (const [name, value] of Object.entries(fields)) {
+            bodyParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
+        }
+
+        for (const file of files) {
+            bodyParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${file.fieldName}"; filename="${file.filename}"\r\nContent-Type: ${file.contentType}\r\n\r\n`));
+            bodyParts.push(file.buffer);
+            bodyParts.push(Buffer.from('\r\n'));
+        }
+
+        bodyParts.push(Buffer.from(`--${boundary}--\r\n`));
+        const body = Buffer.concat(bodyParts);
+        const options = {
+            hostname: 'api.telegram.org',
+            path: `/bot${TG_BOT_TOKEN}/${method}`,
+            method: 'POST',
+            headers: {
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Content-Length': body.length
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    if (!json.ok) {
+                        throw new Error(json.description || `Telegram ${method} 失败`);
+                    }
+                    resolve(json);
+                } catch (e) {
+                    resolve({ ok: false, error: e.message || `Telegram ${method} 响应异常` });
+                }
+            });
+        });
+        req.on('error', (e) => {
+            resolve({ ok: false, error: e.message });
+        });
+        req.write(body);
+        req.end();
+    }).then((json) => {
+        if (json && json.ok === false) {
+            throw new Error(json.error || `Telegram ${method} 失败`);
+        }
+        return json;
+    });
+}
+
+function downloadMediaFile(item, index, redirectCount = 0) {
+    return new Promise((resolve, reject) => {
+        const urlObj = new URL(item.url);
+        const client = urlObj.protocol === 'http:' ? http : https;
+        const req = client.request({
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            method: 'GET',
+            headers: {
+                'User-Agent': USER_AGENTS[0],
+                'Accept': 'image/*,video/*,*/*'
+            }
+        }, (res) => {
+            const statusCode = res.statusCode || 0;
+            if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
+                if (redirectCount >= 3) {
+                    reject(new Error(`媒体重定向过多: ${item.url}`));
+                    return;
+                }
+                const nextUrl = new URL(res.headers.location, item.url).toString();
+                resolve(downloadMediaFile({ ...item, url: nextUrl }, index, redirectCount + 1));
+                return;
+            }
+
+            if (statusCode >= 400) {
+                reject(new Error(`媒体下载失败 HTTP ${statusCode}: ${item.url}`));
+                return;
+            }
+
+            const contentLength = Number(res.headers['content-length'] || 0);
+            if (contentLength > MAX_UPLOAD_MEDIA_BYTES) {
+                reject(new Error(`媒体过大 ${contentLength} bytes: ${item.url}`));
+                return;
+            }
+
+            const chunks = [];
+            let total = 0;
+            let aborted = false;
+            res.on('data', (chunk) => {
+                total += chunk.length;
+                if (total > MAX_UPLOAD_MEDIA_BYTES) {
+                    aborted = true;
+                    req.destroy(new Error(`媒体过大 ${total} bytes: ${item.url}`));
+                    return;
+                }
+                chunks.push(chunk);
+            });
+            res.on('end', () => {
+                if (aborted) return;
+                const contentType = String(res.headers['content-type'] || guessContentType(item));
+                resolve({
+                    type: item.type,
+                    fieldName: `media${index}`,
+                    filename: getMediaFilename(item.url, item.type, contentType, index),
+                    contentType,
+                    buffer: Buffer.concat(chunks)
+                });
+            });
+        });
+
+        req.on('error', reject);
+        req.end();
+    });
+}
+
+function guessContentType(item) {
+    const ext = path.extname(new URL(item.url).pathname).toLowerCase();
+    if (ext === '.png') return 'image/png';
+    if (ext === '.webp') return 'image/webp';
+    if (ext === '.gif') return 'image/gif';
+    if (ext === '.mp4') return 'video/mp4';
+    if (item.type === 'video') return 'video/mp4';
+    return 'image/jpeg';
+}
+
+function getMediaFilename(url, type, contentType, index) {
+    const pathname = new URL(url).pathname;
+    let filename = path.basename(pathname) || `media${index}`;
+    if (!path.extname(filename)) {
+        filename += guessExtension(type, contentType);
+    }
+    return filename.replace(/[^\w.-]/g, '_');
+}
+
+function guessExtension(type, contentType) {
+    if (/png/i.test(contentType)) return '.png';
+    if (/webp/i.test(contentType)) return '.webp';
+    if (/gif/i.test(contentType)) return '.gif';
+    if (/mp4|video/i.test(contentType) || type === 'video') return '.mp4';
+    return '.jpg';
 }
 
 function wait(ms) {
