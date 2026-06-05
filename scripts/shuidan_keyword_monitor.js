@@ -811,11 +811,13 @@ function htmlToText(html) {
     let text = String(html || '');
     text = text.replace(/<script[\s\S]*?<\/script>/gi, '');
     text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
+    text = text.replace(/<(video|audio)\b[\s\S]*?<\/\1>/gi, '\n');
     text = text.replace(/<img\b[^>]*>/gi, '\n');
     text = text.replace(/<br\s*\/?>/gi, '\n');
     text = text.replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n');
     text = text.replace(/<[^>]+>/g, '');
     text = decodeHtmlEntities(text);
+    text = text.replace(/您的设备不支持(?:视频|音频)标签。?/g, '');
     text = text.replace(/\r/g, '\n');
     text = text.replace(/[ \t\f\v]+/g, ' ');
     text = text.replace(/\u00a0/g, ' ');
