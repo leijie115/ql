@@ -823,7 +823,7 @@ function truncateText(text, maxLen) {
     return `${text.slice(0, maxLen)}\n...`;
 }
 
-function buildTelegramMessage(user, item, row, media) {
+function buildTelegramMessage(user, item, row, media, maxContentLength = MAX_CONTENT_LENGTH) {
     const title = row.title || item.title || '新帖';
     const url = buildThreadUrl(item, false);
     const author = row.user_name || (item.user && item.user.name) || user.name;
@@ -831,7 +831,8 @@ function buildTelegramMessage(user, item, row, media) {
     const time = formatTime(row, item);
     const replyCount = row.reply_count != null ? row.reply_count : item.comment_count;
     const click = row.click != null ? row.click : item.click;
-    const content = truncateText(htmlToText(row.content || row.all_des || row.des || ''), MAX_CONTENT_LENGTH);
+    const rawContent = htmlToText(row.content || row.all_des || row.des || '');
+    const content = maxContentLength > 0 ? truncateText(rawContent, maxContentLength) : '';
     const mediaText = formatMediaSummary(media);
 
     const meta = [
@@ -844,6 +845,23 @@ function buildTelegramMessage(user, item, row, media) {
     ].filter(Boolean).join('\n');
 
     return `<b>${scriptName}</b>\n${escapeHtml(user.name)} 发现新帖\n\n标题: ${escapeHtml(title)}\n链接: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n${meta}${content ? `\n\n内容:\n<pre>${escapeHtml(content)}</pre>` : ''}`;
+}
+
+function buildTelegramFallbackMessage(user, item, row, media) {
+    const mediaLines = formatMediaLinkSection(media).split('\n').filter(Boolean);
+    if (mediaLines.length === 0) return buildTelegramMessage(user, item, row, media);
+
+    for (const maxContentLength of [1200, 800, 500, 240, 0]) {
+        const base = buildTelegramMessage(user, item, row, media, maxContentLength);
+        for (let count = mediaLines.length; count > 0; count--) {
+            const omitted = mediaLines.length - count;
+            const suffix = omitted > 0 ? `\n...其余 ${omitted} 个媒体链接略` : '';
+            const message = `${base}\n\n媒体链接:\n${mediaLines.slice(0, count).join('\n')}${suffix}`;
+            if (message.length <= 3900) return message;
+        }
+    }
+
+    return buildTelegramMessage(user, item, row, media, 0);
 }
 
 function buildTelegramMediaCaption(user, item, row, media) {
@@ -892,28 +910,6 @@ function formatMediaLinkSection(media) {
         return `${index + 1}. ${label}: <a href="${url}">${url}</a>`;
     });
     return lines.join('\n');
-}
-
-function buildMediaLinkMessages(user, item, row, media) {
-    if (!media.length) return [];
-
-    const title = row.title || item.title || '新帖';
-    const url = buildThreadUrl(item, false);
-    const header = `<b>${scriptName}</b>\n${escapeHtml(user.name)} 新帖媒体链接\n${escapeHtml(title)}\n帖子: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n`;
-    const lines = formatMediaLinkSection(media).split('\n').filter(Boolean);
-    const messages = [];
-    let current = `${header}\n`;
-
-    for (const line of lines) {
-        if ((current + line + '\n').length > 3600 && current.trim() !== header.trim()) {
-            messages.push(current.trim());
-            current = `${header}\n`;
-        }
-        current += `${line}\n`;
-    }
-
-    if (current.trim() !== header.trim()) messages.push(current.trim());
-    return messages;
 }
 
 function escapeHtml(value) {
@@ -973,18 +969,7 @@ async function monitorUser(user, accounts, state) {
                     log('媒体合并发送失败，回退为文本通知');
                 }
             }
-            await sendTelegram(buildTelegramMessage(user, item, row, media));
-            if (media.length > 0) {
-                const mediaLinkMessages = buildMediaLinkMessages(user, item, row, media);
-                for (const message of mediaLinkMessages) {
-                    await sendTelegram(message);
-                    await wait(500);
-                }
-                const mediaSent = await sendTelegramMedia(media);
-                if (!mediaSent) {
-                    log('媒体直发失败，已在通知中保留可点击链接');
-                }
-            }
+            await sendTelegram(buildTelegramFallbackMessage(user, item, row, media));
             notified++;
             await wait(1000);
         } catch (e) {

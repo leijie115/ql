@@ -747,20 +747,7 @@ async function notifyKeywordMatch(rule, item, row) {
         }
     }
 
-    await sendTelegram(buildTelegramMessage(rule, item, row, media));
-
-    if (media.length > 0) {
-        const mediaLinkMessages = buildMediaLinkMessages(rule, item, row, media);
-        for (const message of mediaLinkMessages) {
-            await sendTelegram(message);
-            await wait(500);
-        }
-
-        const mediaSent = await sendTelegramMedia(media);
-        if (!mediaSent) {
-            log('媒体直发失败，已在通知中保留可点击链接');
-        }
-    }
+    await sendTelegram(buildTelegramFallbackMessage(rule, item, row, media));
 }
 
 function extractRow(html) {
@@ -924,7 +911,7 @@ function truncateText(text, maxLen) {
     return `${text.slice(0, maxLen)}\n...`;
 }
 
-function buildTelegramMessage(rule, item, row, media) {
+function buildTelegramMessage(rule, item, row, media, maxContentLength = MAX_CONTENT_LENGTH) {
     const title = row.title || item.subject || '无标题';
     const url = buildThreadUrl(item, false);
     const author = row.user_name || item.user_name || '';
@@ -932,7 +919,8 @@ function buildTelegramMessage(rule, item, row, media) {
     const time = formatTime(row, item);
     const replyCount = row.reply_count != null ? row.reply_count : item.reply_count;
     const click = row.click != null ? row.click : item.click;
-    const content = truncateText(htmlToText(row.content || row.all_des || row.des || ''), MAX_CONTENT_LENGTH);
+    const rawContent = htmlToText(row.content || row.all_des || row.des || '');
+    const content = maxContentLength > 0 ? truncateText(rawContent, maxContentLength) : '';
     const mediaText = formatMediaSummary(media);
 
     const meta = [
@@ -946,6 +934,23 @@ function buildTelegramMessage(rule, item, row, media) {
     ].filter(Boolean).join('\n');
 
     return `<b>${scriptName}</b>\n发现新增匹配\n\n标题: ${escapeHtml(title)}\n链接: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n${meta}${content ? `\n\n内容:\n<pre>${escapeHtml(content)}</pre>` : ''}`;
+}
+
+function buildTelegramFallbackMessage(rule, item, row, media) {
+    const mediaLines = formatMediaLinkSection(media).split('\n').filter(Boolean);
+    if (mediaLines.length === 0) return buildTelegramMessage(rule, item, row, media);
+
+    for (const maxContentLength of [1200, 800, 500, 240, 0]) {
+        const base = buildTelegramMessage(rule, item, row, media, maxContentLength);
+        for (let count = mediaLines.length; count > 0; count--) {
+            const omitted = mediaLines.length - count;
+            const suffix = omitted > 0 ? `\n...其余 ${omitted} 个媒体链接略` : '';
+            const message = `${base}\n\n媒体链接:\n${mediaLines.slice(0, count).join('\n')}${suffix}`;
+            if (message.length <= 3900) return message;
+        }
+    }
+
+    return buildTelegramMessage(rule, item, row, media, 0);
 }
 
 function buildTelegramMediaCaption(rule, item, row, media) {
@@ -994,28 +999,6 @@ function formatMediaLinkSection(media) {
         return `${index + 1}. ${label}: <a href="${url}">${url}</a>`;
     });
     return lines.join('\n');
-}
-
-function buildMediaLinkMessages(rule, item, row, media) {
-    if (!media.length) return [];
-
-    const title = row.title || item.subject || '无标题';
-    const url = buildThreadUrl(item, false);
-    const header = `<b>${scriptName}</b>\n关键词「${escapeHtml(rule.keyword)}」媒体链接\n${escapeHtml(title)}\n帖子: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n`;
-    const lines = formatMediaLinkSection(media).split('\n').filter(Boolean);
-    const messages = [];
-    let current = `${header}\n`;
-
-    for (const line of lines) {
-        if ((current + line + '\n').length > 3600 && current.trim() !== header.trim()) {
-            messages.push(current.trim());
-            current = `${header}\n`;
-        }
-        current += `${line}\n`;
-    }
-
-    if (current.trim() !== header.trim()) messages.push(current.trim());
-    return messages;
 }
 
 function escapeHtml(value) {
