@@ -914,28 +914,9 @@ function truncateText(text, maxLen) {
 }
 
 function buildTelegramMessage(rule, item, row, media, maxContentLength = MAX_CONTENT_LENGTH) {
-    const title = row.title || item.subject || '无标题';
-    const url = buildThreadUrl(item, false);
-    const author = row.user_name || item.user_name || '';
-    const forum = row.forum_name || item.forum_name || '';
-    const time = formatTime(row, item);
-    const replyCount = row.reply_count != null ? row.reply_count : item.reply_count;
-    const click = row.click != null ? row.click : item.click;
     const rawContent = htmlToText(row.content || row.all_des || row.des || '');
     const content = maxContentLength > 0 ? truncateText(rawContent, maxContentLength) : '';
-    const mediaText = formatMediaSummary(media);
-
-    const meta = [
-        `关键词: ${escapeHtml(rule.keyword)}`,
-        author ? `作者: ${escapeHtml(author)}` : '',
-        forum ? `版块: ${escapeHtml(forum)}` : '',
-        time ? `时间: ${escapeHtml(time)}` : '',
-        replyCount != null && replyCount !== '' ? `回复: ${escapeHtml(replyCount)}` : '',
-        click != null && click !== '' ? `阅读: ${escapeHtml(click)}` : '',
-        mediaText ? `媒体: ${escapeHtml(mediaText)}` : ''
-    ].filter(Boolean).join('\n');
-
-    return `<b>${scriptName}</b>\n发现新增匹配\n\n标题: ${escapeHtml(title)}\n链接: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n${meta}${content ? `\n\n内容:\n<pre>${escapeHtml(content)}</pre>` : ''}`;
+    return `${buildKeywordMessageHeader(rule, item, row, media)}${content ? `\n\n内容:\n<pre>${escapeHtml(content)}</pre>` : ''}`;
 }
 
 function buildTelegramFallbackMessage(rule, item, row, media) {
@@ -956,25 +937,8 @@ function buildTelegramFallbackMessage(rule, item, row, media) {
 }
 
 function buildTelegramMediaCaption(rule, item, row, media) {
-    const title = row.title || item.subject || '无标题';
-    const url = buildThreadUrl(item, false);
-    const author = row.user_name || item.user_name || '';
-    const forum = row.forum_name || item.forum_name || '';
-    const time = formatTime(row, item);
-    const replyCount = row.reply_count != null ? row.reply_count : item.reply_count;
-    const click = row.click != null ? row.click : item.click;
     const content = htmlToText(row.content || row.all_des || row.des || '');
-    const mediaText = formatMediaSummary(media);
-    const meta = [
-        `关键词: ${escapeHtml(rule.keyword)}`,
-        author ? `作者: ${escapeHtml(author)}` : '',
-        forum ? `版块: ${escapeHtml(forum)}` : '',
-        time ? `时间: ${escapeHtml(time)}` : '',
-        replyCount != null && replyCount !== '' ? `回复: ${escapeHtml(replyCount)}` : '',
-        click != null && click !== '' ? `阅读: ${escapeHtml(click)}` : '',
-        mediaText ? `媒体: ${escapeHtml(mediaText)}` : ''
-    ].filter(Boolean).join('\n');
-    const base = `<b>${scriptName}</b>\n发现新增匹配\n\n标题: ${escapeHtml(title)}\n链接: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n${meta}`;
+    const base = buildKeywordMessageHeader(rule, item, row, media);
 
     for (const maxContentLength of [520, 360, 220, 120, 0]) {
         const contentText = maxContentLength > 0 ? truncateText(content, maxContentLength) : '';
@@ -983,6 +947,35 @@ function buildTelegramMediaCaption(rule, item, row, media) {
     }
 
     return '';
+}
+
+function buildKeywordMessageHeader(rule, item, row, media) {
+    const title = row.title || item.subject || '无标题';
+    const url = buildThreadUrl(item, false);
+    const author = row.user_name || item.user_name || '';
+    const forum = row.forum_name || item.forum_name || '';
+    const time = formatTime(row, item);
+    const replyCount = row.reply_count != null ? row.reply_count : item.reply_count;
+    const click = row.click != null ? row.click : item.click;
+    const mediaText = formatMediaSummary(media);
+    const ownerLine = [
+        `关键词: ${escapeHtml(rule.keyword)}`,
+        author ? `作者: ${escapeHtml(author)}` : '',
+        forum ? `版块: ${escapeHtml(forum)}` : ''
+    ].filter(Boolean).join(' · ');
+    const statsLine = [
+        time ? escapeHtml(time) : '',
+        replyCount != null && replyCount !== '' ? `回复 ${escapeHtml(replyCount)}` : '',
+        click != null && click !== '' ? `阅读 ${escapeHtml(click)}` : '',
+        mediaText ? escapeHtml(mediaText) : ''
+    ].filter(Boolean).join(' · ');
+
+    return [
+        `<b>${escapeHtml(title)}</b>`,
+        `帖子: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`,
+        ownerLine,
+        statsLine
+    ].filter(Boolean).join('\n');
 }
 
 function formatMediaSummary(media) {
