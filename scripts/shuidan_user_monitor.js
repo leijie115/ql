@@ -25,6 +25,7 @@ const ACTIVITY_STEP = 20;
 const MAX_CONTENT_LENGTH = 1600;
 const MAX_MEDIA_ITEMS = 10;
 const MAX_MEDIA_GROUP_ITEMS = 10;
+const TELEGRAM_CAPTION_LIMIT = 1000;
 const ACCEPT_ENCODING = [
     'gzip',
     'deflate',
@@ -157,7 +158,7 @@ function telegramApi(method, payload) {
     });
 }
 
-async function sendTelegramMedia(mediaItems) {
+async function sendTelegramMedia(mediaItems, caption = '') {
     if (!TG_BOT_TOKEN || !TG_CHAT_ID || mediaItems.length === 0) {
         return false;
     }
@@ -168,16 +169,24 @@ async function sendTelegramMedia(mediaItems) {
     }
 
     try {
-        for (const chunk of chunks) {
+        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+            const chunk = chunks[chunkIndex];
             if (chunk.length === 1) {
-                await sendTelegramSingleMedia(chunk[0]);
+                await sendTelegramSingleMedia(chunk[0], chunkIndex === 0 ? caption : '');
             } else {
                 await telegramApi('sendMediaGroup', {
                     chat_id: TG_CHAT_ID,
-                    media: chunk.map(item => ({
-                        type: item.type,
-                        media: item.url
-                    }))
+                    media: chunk.map((item, itemIndex) => {
+                        const data = {
+                            type: item.type,
+                            media: item.url
+                        };
+                        if (chunkIndex === 0 && itemIndex === 0 && caption) {
+                            data.caption = caption;
+                            data.parse_mode = 'HTML';
+                        }
+                        return data;
+                    })
                 });
             }
             await wait(800);
@@ -189,17 +198,23 @@ async function sendTelegramMedia(mediaItems) {
     }
 }
 
-function sendTelegramSingleMedia(item) {
+function sendTelegramSingleMedia(item, caption = '') {
+    const captionFields = caption
+        ? { caption, parse_mode: 'HTML' }
+        : {};
+
     if (item.type === 'video') {
         return telegramApi('sendVideo', {
             chat_id: TG_CHAT_ID,
-            video: item.url
+            video: item.url,
+            ...captionFields
         });
     }
 
     return telegramApi('sendPhoto', {
         chat_id: TG_CHAT_ID,
-        photo: item.url
+        photo: item.url,
+        ...captionFields
     });
 }
 
@@ -611,6 +626,37 @@ function buildTelegramMessage(user, item, row, media) {
     return `<b>${scriptName}</b>\n${escapeHtml(user.name)} 发现新帖\n\n标题: ${escapeHtml(title)}\n链接: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n${meta}${content ? `\n\n内容:\n<pre>${escapeHtml(content)}</pre>` : ''}`;
 }
 
+function buildTelegramMediaCaption(user, item, row, media) {
+    const title = row.title || item.title || '新帖';
+    const url = buildThreadUrl(item, false);
+    const author = row.user_name || (item.user && item.user.name) || user.name;
+    const forum = row.forum_name || item.forum_name || item.circle_name || '';
+    const time = formatTime(row, item);
+    const replyCount = row.reply_count != null ? row.reply_count : item.comment_count;
+    const click = row.click != null ? row.click : item.click;
+    const content = htmlToText(row.content || row.all_des || row.des || '');
+    const mediaText = formatMediaSummary(media);
+    const meta = [
+        `监控用户: ${escapeHtml(user.name)}`,
+        `作者: ${escapeHtml(author)}`,
+        forum ? `版块: ${escapeHtml(forum)}` : '',
+        time ? `时间: ${escapeHtml(time)}` : '',
+        replyCount != null && replyCount !== '' ? `回复: ${escapeHtml(replyCount)}` : '',
+        click != null && click !== '' ? `阅读: ${escapeHtml(click)}` : '',
+        mediaText ? `媒体: ${escapeHtml(mediaText)}` : ''
+    ].filter(Boolean).join('\n');
+    const mediaLinks = formatMediaLinkSection(media);
+    const base = `<b>${scriptName}</b>\n${escapeHtml(user.name)} 发现新帖\n\n标题: ${escapeHtml(title)}\n链接: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>\n${meta}`;
+
+    for (const maxContentLength of [280, 160, 80, 0]) {
+        const contentText = maxContentLength > 0 ? truncateText(content, maxContentLength) : '';
+        const caption = `${base}${contentText ? `\n\n内容:\n${escapeHtml(contentText)}` : ''}${mediaLinks ? `\n\n媒体链接:\n${mediaLinks}` : ''}`;
+        if (caption.length <= TELEGRAM_CAPTION_LIMIT) return caption;
+    }
+
+    return '';
+}
+
 function formatMediaSummary(media) {
     const photoCount = media.filter(item => item.type === 'photo').length;
     const videoCount = media.filter(item => item.type === 'video').length;
@@ -696,6 +742,18 @@ async function monitorUser(user, accounts, state) {
         try {
             const row = await fetchThreadDetail(item, accounts, account);
             const media = collectMedia(row, item);
+            if (media.length > 0) {
+                const mediaCaption = buildTelegramMediaCaption(user, item, row, media);
+                if (mediaCaption) {
+                    const mediaSent = await sendTelegramMedia(media, mediaCaption);
+                    if (mediaSent) {
+                        notified++;
+                        await wait(1000);
+                        continue;
+                    }
+                    log('媒体合并发送失败，回退为文本通知');
+                }
+            }
             await sendTelegram(buildTelegramMessage(user, item, row, media));
             if (media.length > 0) {
                 const mediaLinkMessages = buildMediaLinkMessages(user, item, row, media);
