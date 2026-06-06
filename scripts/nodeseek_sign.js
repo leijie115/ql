@@ -160,6 +160,7 @@ async function doSign(name, cookie, index) {
         log(`======== 【${index}】 ${name} ========`);
         const headers = buildHeaders(cookie);
         let beforeBoard = null;
+        let precheckBlocked = false;
 
         try {
             beforeBoard = await getAttendanceBoard(headers);
@@ -169,6 +170,7 @@ async function doSign(name, cookie, index) {
 
         if (isCloudflareBlocked(beforeBoard)) {
             log(`⚠️ ${name} 签到前查询榜单被 Cloudflare 拦截，将继续尝试签到接口`);
+            precheckBlocked = true;
             beforeBoard = null;
         }
 
@@ -197,7 +199,8 @@ async function doSign(name, cookie, index) {
             msg = `ℹ️ ${name} ${result.message}`;
         } else if (result.raw) {
             if (isCloudflareBlocked(result)) {
-                msg = `⚠️ ${name} 被Cloudflare拦截，cf_clearance已过期，请重新登录获取Cookie`;
+                const precheckText = precheckBlocked ? '签到前榜单查询也被拦截。\n' : '';
+                msg = `⚠️ ${name} 签到接口被 Cloudflare 拦截\n${precheckText}请重新在浏览器通过 Cloudflare 校验后抓取 NODESEEK Cookie`;
             } else {
                 msg = `⚠️ ${name} 响应异常: ${result.raw.replace(/<[^>]*>/g, '').substring(0, 100)}`;
             }
