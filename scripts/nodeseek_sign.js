@@ -109,13 +109,20 @@ function getAccounts(envName, splitors = ['@', '\n']) {
 function buildHeaders(cookie) {
     return {
         'accept': '*/*',
-        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'accept-language': 'zh-CN,zh;q=0.9,zh-Hans;q=0.8',
         'cookie': cookie,
         'origin': 'https://www.nodeseek.com',
+        'priority': 'u=1, i',
         'referer': 'https://www.nodeseek.com/board',
         'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
+        'sec-ch-ua-arch': '"arm"',
+        'sec-ch-ua-bitness': '"64"',
+        'sec-ch-ua-full-version': '"146.0.7680.203"',
+        'sec-ch-ua-full-version-list': '"Chromium";v="146.0.7680.203", "Not-A.Brand";v="24.0.0.0", "Google Chrome";v="146.0.7680.203"',
         'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-model': '""',
         'sec-ch-ua-platform': '"macOS"',
+        'sec-ch-ua-platform-version': '"26.4.1"',
         'sec-fetch-dest': 'empty',
         'sec-fetch-mode': 'cors',
         'sec-fetch-site': 'same-origin',
@@ -152,13 +159,17 @@ async function doSign(name, cookie, index) {
     try {
         log(`======== 【${index}】 ${name} ========`);
         const headers = buildHeaders(cookie);
-        const beforeBoard = await getAttendanceBoard(headers);
+        let beforeBoard = null;
+
+        try {
+            beforeBoard = await getAttendanceBoard(headers);
+        } catch (e) {
+            log(`⚠️ 签到前查询榜单失败，将继续尝试签到: ${e.message}`);
+        }
 
         if (isCloudflareBlocked(beforeBoard)) {
-            msg = `⚠️ ${name} 被Cloudflare拦截，cf_clearance已过期，请重新登录获取Cookie`;
-            log(msg);
-            await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
-            return;
+            log(`⚠️ ${name} 签到前查询榜单被 Cloudflare 拦截，将继续尝试签到接口`);
+            beforeBoard = null;
         }
 
         if (hasSignedToday(beforeBoard)) {
