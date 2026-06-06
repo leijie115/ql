@@ -15,18 +15,17 @@ const TG_CHAT_ID = process.env.LEOS_TG_CHAT_ID || '';
 
 // ============ 工具函数 ============
 
-function httpPost(url, headers) {
+function httpRequest(method, url, headers) {
     return new Promise((resolve, reject) => {
         const urlObj = new URL(url);
         const options = {
             hostname: urlObj.hostname,
             path: urlObj.pathname + urlObj.search,
-            method: 'POST',
-            headers: {
-                'content-length': '0',
-                ...headers
-            }
+            method,
+            headers
         };
+        if (method === 'POST') options.headers = { 'content-length': '0', ...headers };
+
         const req = https.request(options, (res) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
@@ -41,6 +40,14 @@ function httpPost(url, headers) {
         req.on('error', reject);
         req.end();
     });
+}
+
+function httpGet(url, headers) {
+    return httpRequest('GET', url, headers);
+}
+
+function httpPost(url, headers) {
+    return httpRequest('POST', url, headers);
 }
 
 function sendTelegram(message) {
@@ -116,21 +123,69 @@ function buildHeaders(cookie) {
     };
 }
 
+async function getAttendanceBoard(headers) {
+    const result = await httpGet('https://www.nodeseek.com/api/attendance/board?page=1', headers);
+    log(`签到榜响应: ${JSON.stringify(result).slice(0, 500)}`);
+    return result;
+}
+
+function hasSignedToday(board) {
+    return !!(board && board.record && board.record.id);
+}
+
+function formatBoardInfo(board) {
+    if (!board || !board.record) return '';
+
+    const parts = [];
+    if (board.record.gain != null) parts.push(`今日收益: ${board.record.gain} 个鸡腿`);
+    if (board.order != null) parts.push(`排名: ${board.order}`);
+    if (board.total != null) parts.push(`总人数: ${board.total}`);
+    return parts.join('\n');
+}
+
+function isCloudflareBlocked(result) {
+    return result && result.raw && (result.raw.includes('cf_chl') || result.raw.includes('Just a moment'));
+}
+
 async function doSign(name, cookie, index) {
     let msg = '';
     try {
         log(`======== 【${index}】 ${name} ========`);
         const headers = buildHeaders(cookie);
+        const beforeBoard = await getAttendanceBoard(headers);
+
+        if (isCloudflareBlocked(beforeBoard)) {
+            msg = `⚠️ ${name} 被Cloudflare拦截，cf_clearance已过期，请重新登录获取Cookie`;
+            log(msg);
+            await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+            return;
+        }
+
+        if (hasSignedToday(beforeBoard)) {
+            const boardInfo = formatBoardInfo(beforeBoard);
+            msg = `ℹ️ ${name} 今天已签到${boardInfo ? `\n${boardInfo}` : ''}`;
+            log(msg);
+            await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+            return;
+        }
+
         const result = await httpPost('https://www.nodeseek.com/api/attendance?random=false', headers);
 
         log(`签到响应: ${JSON.stringify(result)}`);
 
         if (result.success) {
-            msg = `✅ ${name} 签到成功!\n${result.message}\n当前鸡腿: ${result.current}`;
+            let boardInfo = '';
+            try {
+                const afterBoard = await getAttendanceBoard(headers);
+                boardInfo = formatBoardInfo(afterBoard);
+            } catch (e) {
+                log(`⚠️ 签到后查询榜单失败: ${e.message}`);
+            }
+            msg = `✅ ${name} 签到成功!\n${result.message}\n当前鸡腿: ${result.current}${boardInfo ? `\n${boardInfo}` : ''}`;
         } else if (result.message) {
             msg = `ℹ️ ${name} ${result.message}`;
         } else if (result.raw) {
-            if (result.raw.includes('cf_chl') || result.raw.includes('Just a moment')) {
+            if (isCloudflareBlocked(result)) {
                 msg = `⚠️ ${name} 被Cloudflare拦截，cf_clearance已过期，请重新登录获取Cookie`;
             } else {
                 msg = `⚠️ ${name} 响应异常: ${result.raw.replace(/<[^>]*>/g, '').substring(0, 100)}`;
