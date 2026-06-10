@@ -1,0 +1,22 @@
+#!name=Hikiot请求响应抓取
+#!desc=抓取 api.hikiot.com 的请求和返回值，并发送到 Telegram
+#!author=leos
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Cookie.png
+
+[Argument]
+tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token
+tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID
+include_headers = input,"false",tag=包含Headers,desc=true/false，默认 false
+mask_sensitive = input,"true",tag=敏感信息脱敏,desc=true/false，默认 true
+max_body_chars = input,"1600",tag=单段最大字符数,desc=请求体/响应体分别截断到这个长度
+
+[Script]
+http-request ^https:\/\/api\.hikiot\.com\/.* script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/hikiot/hikiot_capture.js?v=20260610-1, requires-body=true, timeout=30, tag=Hikiot请求抓取, argument=[{tg_bot_token},{tg_chat_id},{include_headers},{mask_sensitive},{max_body_chars}]
+http-response ^https:\/\/api\.hikiot\.com\/.* script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/hikiot/hikiot_capture.js?v=20260610-1, requires-body=true, timeout=30, tag=Hikiot响应抓取, argument=[{tg_bot_token},{tg_chat_id},{include_headers},{mask_sensitive},{max_body_chars}]
+
+[Rule]
+AND,((DOMAIN,api.hikiot.com),(PROTOCOL,QUIC)),REJECT-DROP
+AND,((DOMAIN,api.hikiot.com),(PROTOCOL,UDP),(DEST-PORT,443)),REJECT-DROP
+
+[MITM]
+hostname = api.hikiot.com
