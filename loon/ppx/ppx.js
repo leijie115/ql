@@ -5,8 +5,8 @@
  * 配合 ppx.plugin 使用，参数通过 [Argument] 配置
  */
 
-const MIN_STAT_COMMENT_COUNT = 21;
-const MIN_COLLECT_COMMENTS = 5;
+const MIN_STAT_COMMENT_COUNT = 11;
+const MIN_COLLECT_COMMENTS = 11;
 const MAX_ACTIVE_COMMENT_REQUESTS = 20;
 const NOTIFY_MAX_LEN = 520;
 const ENABLE_LOON_NOTIFY = false;
