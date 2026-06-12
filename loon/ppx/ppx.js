@@ -10,6 +10,7 @@ const MIN_COLLECT_COMMENTS = 11;
 const MAX_ACTIVE_COMMENT_REQUESTS = 20;
 const MAX_ACTIVE_COMMENT_PAGES = 3;
 const NOTIFY_MAX_LEN = 520;
+const TG_MESSAGE_MAX_LEN = 3600;
 const ENABLE_LOON_NOTIFY = false;
 const LARGE_ID_KEYS = '(?:item|cell|root_cell|comment)_id';
 
@@ -67,6 +68,13 @@ function notifyPPX(subtitle, body) {
   $.notify('皮皮虾', subtitle, truncate(body, NOTIFY_MAX_LEN));
 }
 
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function readArgs() {
   if (typeof $argument === 'object' && $argument) {
     if (Array.isArray($argument)) {
@@ -115,8 +123,30 @@ function readArgs() {
 function sendTG(botToken, chatId, text) {
   if (!botToken || !chatId || !text) return Promise.resolve();
   return $.get({
-    url: `https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(text)}&parse_mode=HTML`,
+    url: `https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(escapeHtml(text))}&parse_mode=HTML`,
   }).catch(() => {});
+}
+
+async function sendTGChunks(botToken, chatId, title, lines) {
+  if (!botToken || !chatId || !lines || lines.length === 0) return;
+  const chunks = [];
+  let current = title || '';
+
+  for (const line of lines) {
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length > TG_MESSAGE_MAX_LEN && current) {
+      chunks.push(current);
+      current = `${title || 'PPX 诊断'}\n${line}`;
+    } else {
+      current = next;
+    }
+  }
+
+  if (current) chunks.push(current);
+  for (let i = 0; i < chunks.length; i++) {
+    const prefix = chunks.length > 1 ? `[${i + 1}/${chunks.length}] ` : '';
+    await sendTG(botToken, chatId, `${prefix}${chunks[i]}`);
+  }
 }
 
 function getParam(url, name) {
@@ -267,6 +297,11 @@ function cleanText(text) {
     .trim();
 }
 
+function titleOf(item) {
+  const note = (item && item.note) || {};
+  return cleanText(note.title || note.text || (item && item.content));
+}
+
 function safeCount(value) {
   const count = Number(value);
   return Number.isFinite(count) && count > 0 ? count : 0;
@@ -393,7 +428,7 @@ function buildPayload(item, comments, source, itemId) {
   }
   return {
     item_id: finalId,
-    title: cleanText(note.title || note.text || (item && item.content)),
+    title: titleOf(item),
     images: extractImages(item),
     comments,
     source,
@@ -507,12 +542,33 @@ async function fetchCommentPages(feedUrl, reqHeaders, itemId, cellType, minComme
   };
 }
 
+function buildFeedDebugLines(summary, diagnostics) {
+  const lines = [
+    `host=${summary.host} route=${summary.route}`,
+    `feed=${summary.total} item=${diagnostics.length} 评论卡=${summary.commentCellCount} 候选=${summary.candidateCount} 主动=${summary.activeTried}/${summary.activeTargetCount} 上报=${summary.successCount} 失败=${summary.failedCount}`,
+  ];
+
+  diagnostics.forEach((row, index) => {
+    const title = truncate(String(row.title || '(无标题)').replace(/\s+/g, ' '), 56);
+    const detailText = row.detailAttempted
+      ? `详情comment=${row.detailRawComments}/${row.detailFilteredComments} 页=${row.detailPages || 0}${row.detailOffsets ? `(${row.detailOffsets})` : ''}`
+      : '详情comment=未拉取';
+    const errorText = row.error ? ` 失败=${truncate(row.error, 80)}` : '';
+    lines.push(
+      `${index + 1}. ${row.id} 图=${row.imageCount} stats=${row.commentCount} comment数组=${row.feedRawComments}/${row.feedFilteredComments} ${detailText} 状态=${row.status}${errorText} 标题=${title}`
+    );
+  });
+
+  return lines;
+}
+
 async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
   const items = (feedData.data && feedData.data.data) || [];
   const itemById = {};
   const cellTypeById = {};
   const commentsByItemId = {};
   const commentCountByItemId = {};
+  const diagnostics = [];
   let commentCellCount = 0;
 
   notifyPPX(
@@ -560,24 +616,59 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
   let activeTried = 0;
   let activeFetched = 0;
   let activeFailed = 0;
+  let collectFailed = 0;
   const activeTargets = [];
 
   for (const id in itemById) {
     const item = itemById[id];
     const images = extractImages(item);
+    const feedRawComments = commentsByItemId[id] || [];
     const comments = extractComments(commentsByItemId[id] || []);
     const commentCount = Math.max(commentCountByItemId[id] || 0, commentCountOf(null, item, comments));
+    const diagnostic = {
+      id,
+      title: titleOf(item),
+      imageCount: images.length,
+      commentCount,
+      feedRawComments: feedRawComments.length,
+      feedFilteredComments: comments.length,
+      detailAttempted: false,
+      detailRawComments: 0,
+      detailFilteredComments: 0,
+      detailPages: 0,
+      detailOffsets: '',
+      status: '待判断',
+      error: '',
+    };
+    diagnostics.push(diagnostic);
 
-    if (images.length > 0 && commentCount >= MIN_STAT_COMMENT_COUNT) candidateCount++;
-    if (images.length === 0 || commentCount < MIN_STAT_COMMENT_COUNT) continue;
-
-    if (comments.length >= MIN_COLLECT_COMMENTS) {
-      await collect(serverUrl, buildPayload(item, comments, 'feed', id));
-      successCount++;
+    if (images.length === 0) {
+      diagnostic.status = '跳过:无图片';
       continue;
     }
 
-    activeTargets.push({ id, item, cellType: cellTypeById[id] || 1, commentCount });
+    if (commentCount < MIN_STAT_COMMENT_COUNT) {
+      diagnostic.status = `跳过:stats<${MIN_STAT_COMMENT_COUNT}`;
+      continue;
+    }
+
+    candidateCount++;
+
+    if (comments.length >= MIN_COLLECT_COMMENTS) {
+      try {
+        await collect(serverUrl, buildPayload(item, comments, 'feed', id));
+        successCount++;
+        diagnostic.status = 'feed上报成功';
+      } catch (e) {
+        collectFailed++;
+        diagnostic.status = 'feed上报失败';
+        diagnostic.error = e && e.message ? e.message : String(e);
+      }
+      continue;
+    }
+
+    diagnostic.status = '待主动拉详情';
+    activeTargets.push({ id, item, cellType: cellTypeById[id] || 1, commentCount, diagnostic });
   }
 
   notifyPPX(
@@ -596,8 +687,15 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
       const item = extractItemFromComments(cellComments) || target.item;
       const payload = buildPayload(item, comments, `active_comment:${page.mode}`);
       payload.item_id = payload.item_id || target.id;
+      target.diagnostic.detailAttempted = true;
+      target.diagnostic.detailRawComments = cellComments.length;
+      target.diagnostic.detailFilteredComments = comments.length;
+      target.diagnostic.detailPages = page.pages.length;
+      target.diagnostic.detailOffsets = page.pages.map((item) => `${item.offset}:${item.count}`).join(',');
 
       if (payload.images.length === 0 || payload.comments.length < MIN_COLLECT_COMMENTS) {
+        target.diagnostic.status = payload.images.length === 0 ? '跳过:详情无图片' : '跳过:详情评论不足';
+        target.diagnostic.error = `images=${payload.images.length} comments=${payload.comments.length}`;
         notifyPPX(
           '主动评论不足',
           `item=${target.id} images=${payload.images.length} comments=${payload.comments.length}`
@@ -609,19 +707,46 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
       await collect(serverUrl, payload);
       activeFetched++;
       successCount++;
+      target.diagnostic.status = '主动上报成功';
     } catch (e) {
       activeFailed++;
+      target.diagnostic.detailAttempted = true;
+      target.diagnostic.status = '主动拉取/上报失败';
+      target.diagnostic.error = e && e.message ? e.message : String(e);
       notifyPPX('主动处理失败', `item=${target.id} ${e && e.message ? e.message : e}`);
       console.log(`[PPX] comment fetch ${target.id} failed: ${e && e.message ? e.message : e}`);
     }
   }
 
+  activeTargets.slice(MAX_ACTIVE_COMMENT_REQUESTS).forEach((target) => {
+    if (target.diagnostic.status === '待主动拉详情') {
+      target.diagnostic.status = '未拉取:超过主动上限';
+    }
+  });
+
   notifyPPX(
     'Feed 已拦截',
-    `共 ${items.length} 条，评论卡 ${commentCellCount} 条，stats>=${MIN_STAT_COMMENT_COUNT} 候选 ${candidateCount} 条，主动 ${activeTried}/${activeTargets.length} 条，上报 ${successCount} 条，失败 ${activeFailed} 条`
+    `共 ${items.length} 条，评论卡 ${commentCellCount} 条，stats>=${MIN_STAT_COMMENT_COUNT} 候选 ${candidateCount} 条，主动 ${activeTried}/${activeTargets.length} 条，上报 ${successCount} 条，失败 ${activeFailed + collectFailed} 条`
   );
 
+  const summary = {
+    host: hostOf(reqUrl),
+    route: routeOf(reqUrl),
+    successCount,
+    candidateCount,
+    total: items.length,
+    commentCellCount,
+    activeTried,
+    activeTargetCount: activeTargets.length,
+    activeFetched,
+    activeFailed,
+    collectFailed,
+    failedCount: activeFailed + collectFailed,
+  };
+
   return {
+    debugTitle: '皮皮虾 Feed 抓取诊断',
+    debugLines: buildFeedDebugLines(summary, diagnostics),
     successCount,
     candidateCount,
     total: items.length,
@@ -629,6 +754,7 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
     activeTried,
     activeFetched,
     activeFailed,
+    collectFailed,
   };
 }
 
@@ -738,8 +864,15 @@ async function handleComments(commentData, serverUrl, reqUrl) {
       result = { skipped: true, reason: 'unknown_url' };
     }
 
+    if (result && result.debugLines) {
+      await sendTGChunks(tgBotToken, tgChatId, result.debugTitle, result.debugLines);
+    }
+
     if (result && result.successCount > 0) {
-      await sendTG(tgBotToken, tgChatId, `皮皮虾抓取成功：${JSON.stringify(result)}`);
+      const successSummary = Object.assign({}, result);
+      delete successSummary.debugTitle;
+      delete successSummary.debugLines;
+      await sendTG(tgBotToken, tgChatId, `皮皮虾抓取成功：${JSON.stringify(successSummary)}`);
     }
   } catch (e) {
     const message = e && e.message ? e.message : String(e);
