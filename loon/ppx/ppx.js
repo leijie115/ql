@@ -8,6 +8,7 @@
 const MIN_STAT_COMMENT_COUNT = 11;
 const MIN_COLLECT_COMMENTS = 11;
 const MAX_ACTIVE_COMMENT_REQUESTS = 20;
+const MAX_ACTIVE_COMMENT_PAGES = 3;
 const NOTIFY_MAX_LEN = 520;
 const ENABLE_LOON_NOTIFY = false;
 const LARGE_ID_KEYS = '(?:item|cell|root_cell|comment)_id';
@@ -194,9 +195,9 @@ function getResponse() {
   return typeof $response === 'object' && $response ? $response : null;
 }
 
-function buildCommentUrl(feedUrl, itemId, cellType) {
+function buildCommentUrl(feedUrl, itemId, cellType, offset) {
   const params = parseQuery(feedUrl);
-  params.offset = '0';
+  params.offset = String(offset || 0);
   params.cell_type = String(cellType || 1);
   params.api_version = '1';
   params.cell_id = String(itemId);
@@ -429,8 +430,8 @@ async function collect(serverUrl, payload) {
   notifyPPX('上报成功', `item=${payload.item_id} status=${resp.status}`);
 }
 
-async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType) {
-  const url = buildCommentUrl(feedUrl, itemId, cellType);
+async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType, offset) {
+  const url = buildCommentUrl(feedUrl, itemId, cellType, offset);
   const attempts = [
     { name: 'clean', headers: buildCommentHeaders(reqHeaders, url, true) },
     { name: 'fallback', headers: buildCommentHeaders(reqHeaders, url, false) },
@@ -439,7 +440,7 @@ async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType) {
 
   for (const attempt of attempts) {
     try {
-      notifyPPX('主动拉评论', `item=${itemId} mode=${attempt.name} url=${routeOf(url)}`);
+      notifyPPX('主动拉评论', `item=${itemId} offset=${offset || 0} mode=${attempt.name} url=${routeOf(url)}`);
       const resp = await $.get({ url, headers: attempt.headers });
       if (resp.status < 200 || resp.status >= 300) {
         throw new Error(`status=${resp.status}`);
@@ -451,8 +452,8 @@ async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType) {
       }
 
       const count = data.data && data.data.cell_comments ? data.data.cell_comments.length : 0;
-      notifyPPX('主动拉成功', `item=${itemId} mode=${attempt.name} comments=${count}`);
-      return { data, url, mode: attempt.name };
+      notifyPPX('主动拉成功', `item=${itemId} offset=${offset || 0} mode=${attempt.name} comments=${count}`);
+      return { data, url, mode: attempt.name, offset: offset || 0 };
     } catch (e) {
       lastError = `${attempt.name}: ${e && e.message ? e.message : e}`;
       notifyPPX('主动拉失败', `item=${itemId} ${lastError}`);
@@ -461,6 +462,51 @@ async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType) {
   }
 
   throw new Error(lastError || 'comment fetch failed');
+}
+
+async function fetchCommentPages(feedUrl, reqHeaders, itemId, cellType, minComments) {
+  const pages = [];
+  const cellComments = [];
+  const seenOffsets = {};
+  let offset = 0;
+
+  for (let pageIndex = 0; pageIndex < MAX_ACTIVE_COMMENT_PAGES; pageIndex++) {
+    const offsetKey = String(offset || 0);
+    if (seenOffsets[offsetKey]) break;
+    seenOffsets[offsetKey] = true;
+
+    const page = await fetchCommentPage(feedUrl, reqHeaders, itemId, cellType, offset);
+    const data = (page.data && page.data.data) || {};
+    const currentComments = data.cell_comments || [];
+    const filteredCount = extractComments(cellComments.concat(currentComments)).length;
+    const nextOffset = data.offset;
+
+    pages.push({
+      mode: page.mode,
+      offset: page.offset,
+      count: currentComments.length,
+      filteredCount,
+      hasMore: !!data.has_more,
+      nextOffset,
+    });
+    Array.prototype.push.apply(cellComments, currentComments);
+
+    if (filteredCount >= minComments || !data.has_more) break;
+    if (nextOffset === undefined || nextOffset === null || String(nextOffset) === '' || String(nextOffset) === offsetKey) break;
+
+    offset = nextOffset;
+  }
+
+  notifyPPX(
+    '主动拉汇总',
+    `item=${itemId} pages=${pages.length} comments=${extractComments(cellComments).length}/${minComments}`
+  );
+
+  return {
+    cellComments,
+    pages,
+    mode: pages.map((page) => `${page.mode}@${page.offset}`).join(',') || 'unknown',
+  };
 }
 
 async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
@@ -546,9 +592,8 @@ async function handleFeed(feedData, serverUrl, reqUrl, reqHeaders) {
 
     try {
       notifyPPX('准备主动拉评论', `item=${target.id} stats=${target.commentCount}`);
-      const page = await fetchCommentPage(reqUrl, reqHeaders, target.id, target.cellType);
-      const data = page.data.data || {};
-      const cellComments = data.cell_comments || [];
+      const page = await fetchCommentPages(reqUrl, reqHeaders, target.id, target.cellType, MIN_COLLECT_COMMENTS);
+      const cellComments = page.cellComments || [];
       const comments = extractComments(cellComments);
       const item = extractItemFromComments(cellComments) || target.item;
       const payload = buildPayload(item, comments, `active_comment:${page.mode}`);
