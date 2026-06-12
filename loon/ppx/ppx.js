@@ -218,8 +218,6 @@ function buildCommentHeaders(headers, targetUrl, stripSignatures) {
     'x-khronos': true,
     'x-ladon': true,
     'x-medusa': true,
-    'x-tt-trace-id': true,
-    'tt-request-time': true,
   };
   const nextHeaders = {};
 
@@ -433,8 +431,8 @@ async function collect(serverUrl, payload) {
 async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType, offset) {
   const url = buildCommentUrl(feedUrl, itemId, cellType, offset);
   const attempts = [
+    { name: 'reuse', headers: buildCommentHeaders(reqHeaders, url, false) },
     { name: 'clean', headers: buildCommentHeaders(reqHeaders, url, true) },
-    { name: 'fallback', headers: buildCommentHeaders(reqHeaders, url, false) },
   ];
   let lastError = '';
 
