@@ -267,16 +267,55 @@ function buildCommentHeaders(headers, targetUrl, stripSignatures) {
   return nextHeaders;
 }
 
+function addImageUrlCandidate(candidates, value) {
+  if (!value) return;
+  if (typeof value === 'string') {
+    candidates.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => addImageUrlCandidate(candidates, item));
+    return;
+  }
+  if (typeof value === 'object') {
+    addImageUrlCandidate(candidates, value.url);
+    addImageUrlCandidate(candidates, value.main_url);
+    addImageUrlCandidate(candidates, value.uri);
+  }
+}
+
+function scoreImageUrl(url, image) {
+  const text = String(url || '').toLowerCase();
+  let score = 0;
+
+  if (expectsAnimatedImage(image) && /\.(gif|webp)(?:[?#]|$)/.test(text)) score += 120;
+  if (text.indexOf('image.image') !== -1) score += 90;
+  if (/\.(jpe?g|png|webp|gif)(?:[?#]|$)/.test(text)) score += 60;
+  if (text.indexOf('logo') !== -1) score -= 25;
+  if (text.indexOf('noop') !== -1) score -= 50;
+  if (text.indexOf('rsq-v') !== -1) score -= 10;
+  if (/\.heic(?:[?#]|$)/.test(text)) score -= 120;
+
+  return score;
+}
+
+function imageUrlCandidates(image) {
+  const candidates = [];
+  addImageUrlCandidate(candidates, image && image.origin_url);
+  addImageUrlCandidate(candidates, image && image.original_url);
+  addImageUrlCandidate(candidates, image && image.large_image_url);
+  addImageUrlCandidate(candidates, image && image.gif_url);
+  addImageUrlCandidate(candidates, image && image.animated_url);
+  addImageUrlCandidate(candidates, image && image.download_list);
+  addImageUrlCandidate(candidates, image && image.url_list);
+  addImageUrlCandidate(candidates, image && image.url);
+
+  return Array.from(new Set(candidates.filter((url) => /^https?:\/\//.test(String(url || '')))))
+    .sort((a, b) => scoreImageUrl(b, image) - scoreImageUrl(a, image));
+}
+
 function firstUrl(image) {
-  if (!image) return '';
-  const downloadList = image.download_list || [];
-  const urlList = image.url_list || [];
-  return (
-    (downloadList[0] && downloadList[0].url) ||
-    (urlList[0] && urlList[0].url) ||
-    image.url ||
-    ''
-  );
+  return imageUrlCandidates(image)[0] || '';
 }
 
 function extractImages(item) {
@@ -285,6 +324,7 @@ function extractImages(item) {
   const images = multiImage
     .map((image) => ({
       url: firstUrl(image),
+      url_candidates: imageUrlCandidates(image).slice(0, 6),
       is_gif: !!image.is_gif,
     }))
     .filter((image) => image.url);
@@ -292,7 +332,11 @@ function extractImages(item) {
   if (images.length > 0) return images;
 
   const coverUrl = firstUrl(item && item.cover);
-  return coverUrl ? [{ url: coverUrl, is_gif: !!(item && item.cover && item.cover.is_gif) }] : [];
+  return coverUrl ? [{
+    url: coverUrl,
+    url_candidates: imageUrlCandidates(item && item.cover).slice(0, 6),
+    is_gif: !!(item && item.cover && item.cover.is_gif),
+  }] : [];
 }
 
 function cleanText(text) {
