@@ -5,10 +5,11 @@
  * 配合 ppx.plugin 使用，参数通过 [Argument] 配置
  */
 
-const MIN_STAT_COMMENT_COUNT = 11;
-const MIN_COLLECT_COMMENTS = 11;
+const MIN_STAT_COMMENT_COUNT = 9;
+const MIN_COLLECT_COMMENTS = 9;
 const MAX_ACTIVE_COMMENT_REQUESTS = 20;
 const MAX_ACTIVE_COMMENT_PAGES = 3;
+const COLLECT_MAX_ATTEMPTS = 3;
 const NOTIFY_MAX_LEN = 520;
 const TG_MESSAGE_MAX_LEN = 3600;
 const ENABLE_LOON_NOTIFY = false;
@@ -30,6 +31,10 @@ const $ = {
       )
     ),
 };
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function truncate(value, maxLen) {
   const text = String(value || '');
@@ -446,21 +451,54 @@ async function collect(serverUrl, payload) {
   const idMatch = body.match(/"item_id"\s*:\s*("?[^",}]+"?)/);
   console.log(`[PPX-DEBUG] body 实际: item_id_in_body=${idMatch ? idMatch[1] : 'NOT_FOUND'} payload.item_id=${payload.item_id}`);
 
-  const resp = await $.post({
-    url: serverUrl.replace(/\/+$/, '') + '/collect',
-    headers: { 'Content-Type': 'application/json' },
-    body,
-  });
+  const url = serverUrl.replace(/\/+$/, '') + '/collect';
+  let lastError = '';
 
-  if (resp.status < 200 || resp.status >= 300) {
-    notifyPPX(
-      '上报失败',
-      `status=${resp.status} item=${payload.item_id} body=${String(resp.body || '').slice(0, 160)}`
-    );
-    throw new Error(`collect status=${resp.status} body=${String(resp.body || '').slice(0, 120)}`);
+  for (let attempt = 1; attempt <= COLLECT_MAX_ATTEMPTS; attempt++) {
+    try {
+      const resp = await $.post({
+        url,
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+
+      if (resp.status >= 200 && resp.status < 300) {
+        notifyPPX('上报成功', `item=${payload.item_id} status=${resp.status} attempt=${attempt}`);
+        return;
+      }
+
+      lastError = `collect status=${resp.status} body=${String(resp.body || '').slice(0, 120)}`;
+      if ((resp.status === 502 || resp.status === 503 || resp.status === 504) && attempt < COLLECT_MAX_ATTEMPTS) {
+        notifyPPX(
+          '上报重试',
+          `item=${payload.item_id} status=${resp.status} attempt=${attempt}/${COLLECT_MAX_ATTEMPTS}`
+        );
+        await wait(800 * attempt);
+        continue;
+      }
+
+      notifyPPX(
+        '上报失败',
+        `status=${resp.status} item=${payload.item_id} body=${String(resp.body || '').slice(0, 160)}`
+      );
+      const err = new Error(lastError);
+      err.retryable = false;
+      throw err;
+    } catch (e) {
+      lastError = e && e.message ? e.message : String(e);
+      if (e && e.retryable === false) {
+        throw e;
+      }
+      if (attempt < COLLECT_MAX_ATTEMPTS) {
+        notifyPPX('上报重试', `item=${payload.item_id} error=${truncate(lastError, 80)} attempt=${attempt}/${COLLECT_MAX_ATTEMPTS}`);
+        await wait(800 * attempt);
+        continue;
+      }
+      throw new Error(`collect failed after ${attempt} attempts: ${lastError}`);
+    }
   }
 
-  notifyPPX('上报成功', `item=${payload.item_id} status=${resp.status}`);
+  throw new Error(lastError || 'collect failed');
 }
 
 async function fetchCommentPage(feedUrl, reqHeaders, itemId, cellType, offset) {
