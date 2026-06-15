@@ -284,6 +284,17 @@ function addImageUrlCandidate(candidates, value) {
   }
 }
 
+function expectsAnimatedImage(image) {
+  return !!(image && (
+    image.is_gif ||
+    image.is_animated ||
+    image.animated ||
+    image.isAnimated ||
+    String(image.type || '').toLowerCase() === 'gif' ||
+    String(image.format || '').toLowerCase() === 'gif'
+  ));
+}
+
 function scoreImageUrl(url, image) {
   const text = String(url || '').toLowerCase();
   let score = 0;
