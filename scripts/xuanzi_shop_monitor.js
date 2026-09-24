@@ -1,6 +1,6 @@
 /*
-cron: 0 0,6,12,18 * * *
-环境变量: XUANZI_WEIMOB  格式: 账号描述#x-wx-token  (单账号可只填 token)
+cron: 0 0,3,6,9,12,15,18,21 * * *
+环境变量: XUANZI_WEIMOB  格式: 账号描述#x-wx-token  多账号用 @ 或换行分隔(每次运行轮换一个)
 说明: 监控萱子"会员俱乐部/积分兑好物"装修页, 检测热区商品是否有新上/下架, 变化时Bark通知(附图)
 其余商户参数(vid/bosId/pid/pageId 等)为固定常量, 已写死在脚本中
 Bark通知环境变量: LEOS_BARK_KEY  (多设备用 , 换行 或 @ 分隔)
@@ -93,15 +93,33 @@ function notify(message, image) {
     return sendBark(scriptName, htmlToText(message), image);
 }
 
-function getToken(envName) {
-    let str = (process.env[envName] || '').trim();
-    if (!str) return null;
-    // 支持 账号#token 或 纯 token
-    const idx = str.indexOf('#');
-    if (idx > -1) {
-        return { name: str.substring(0, idx) || '萱子', token: str.substring(idx + 1).trim() };
+// 解析多账号: 账号#token, 用 @ 或换行分隔
+function getAccounts(envName) {
+    const str = (process.env[envName] || '').trim();
+    if (!str) return [];
+    const splitor = str.indexOf('@') > -1 ? '@' : '\n';
+    return str.split(splitor).map((s) => s.trim()).filter(Boolean).map((line) => {
+        const idx = line.indexOf('#');
+        if (idx > -1) return { name: line.substring(0, idx) || '萱子', token: line.substring(idx + 1).trim() };
+        return { name: '萱子', token: line };
+    }).filter((a) => a.token);
+}
+
+// 轮换状态: 记录下次起始账号下标, 每次运行 +1
+const ROTATE_FILE = path.join(__dirname, '.xuanzi_shop_rotate.json');
+
+function loadRotateIndex() {
+    try {
+        return JSON.parse(fs.readFileSync(ROTATE_FILE, 'utf8')).index || 0;
+    } catch {
+        return 0;
     }
-    return { name: '萱子', token: str };
+}
+
+function saveRotateIndex(index) {
+    try {
+        fs.writeFileSync(ROTATE_FILE, JSON.stringify({ index }));
+    } catch {}
 }
 
 // ============ 请求 & 解析 ============
@@ -211,28 +229,46 @@ function saveSnapshot(snap) {
 !(async () => {
     log(`🔔 ${scriptName}, 开始!`);
 
-    const acc = getToken('XUANZI_WEIMOB');
-    if (!acc || !acc.token) {
+    const accounts = getAccounts('XUANZI_WEIMOB');
+    if (accounts.length === 0) {
         log('⚠️ 未配置环境变量 XUANZI_WEIMOB');
         await notify(`<b>${scriptName}</b>\n⚠️ 未配置环境变量 XUANZI_WEIMOB`);
         return;
     }
 
-    let res;
-    try {
-        res = await httpPost(API_PATH, buildHeaders(acc.token), buildBody());
-    } catch (e) {
-        log(`请求异常: ${e.message}`);
-        await notify(`<b>${scriptName}</b>\n⚠️ 请求异常: ${e.message}`);
-        return;
+    // 轮换起始账号: 这次用一个, 下次用下一个
+    const start = loadRotateIndex() % accounts.length;
+    saveRotateIndex((start + 1) % accounts.length);
+    log(`共 ${accounts.length} 个账号, 本次从第 ${start + 1} 个开始`);
+
+    // 从起始账号起依次尝试, 直到某个 token 成功 (失效则自动换下一个)
+    let res = null;
+    let usedName = '';
+    const failed = [];
+    for (let i = 0; i < accounts.length; i++) {
+        const acc = accounts[(start + i) % accounts.length];
+        let r;
+        try {
+            r = await httpPost(API_PATH, buildHeaders(acc.token), buildBody());
+        } catch (e) {
+            log(`【${acc.name}】请求异常: ${e.message}`);
+            failed.push(`${acc.name}(异常)`);
+            continue;
+        }
+        if (r && r.errcode === 0 && r.data) {
+            res = r;
+            usedName = acc.name;
+            log(`【${acc.name}】拉取成功`);
+            break;
+        }
+        const emsg = r && r.errmsg ? r.errmsg : JSON.stringify(r).slice(0, 120);
+        log(`【${acc.name}】失败: ${emsg}`);
+        failed.push(`${acc.name}(${emsg})`);
     }
 
-    if (!res || res.errcode !== 0 || !res.data) {
-        const msg = res && res.errmsg ? res.errmsg : JSON.stringify(res).slice(0, 200);
-        // 1041 等 = 登录态失效
-        const hint = res && (res.errcode === 1041 || /登录/.test(msg)) ? '\n👉 x-wx-token 已失效，请打开小程序刷新后更新 XUANZI_WEIMOB' : '';
-        log(`接口失败: ${msg}`);
-        await notify(`<b>${scriptName}</b>\n⚠️ 接口失败: ${msg}${hint}`);
+    if (!res) {
+        const hint = failed.some((f) => /登录|1041/.test(f)) ? '\n👉 x-wx-token 已失效，请打开小程序刷新后更新 XUANZI_WEIMOB' : '';
+        await notify(`<b>${scriptName}</b>\n⚠️ 全部账号拉取失败:\n${failed.join('\n')}${hint}`);
         return;
     }
 
@@ -293,6 +329,7 @@ function saveSnapshot(snap) {
     if (imageChanged) {
         msg += `\n\n🖼️ 装修图已更新`;
     }
+    msg += `\n\n<i>数据账号: ${usedName}</i>`;
 
     log(msg);
 
