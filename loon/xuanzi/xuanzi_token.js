@@ -36,12 +36,15 @@ function sendTG(botToken, chatId, text) {
     }).catch(() => {});
 }
 
-// Bark 推送: barkKey 可为设备key, 也可为完整URL(自建服务)
+// Bark 推送: barkKey 支持多设备, 用 , 换行 或 @ 分隔多个 key/完整URL
 function sendBark(barkKey, title, body) {
     if (!barkKey) return Promise.resolve();
-    const base = /^https?:\/\//.test(barkKey) ? barkKey.replace(/\/+$/, '') : `https://api.day.app/${barkKey}`;
-    const url = `${base}/${encodeURIComponent(title)}/${encodeURIComponent(body)}?group=${encodeURIComponent('萱子')}`;
-    return $.get({ url }).catch(() => {});
+    const keys = barkKey.split(/[,\n@]/).map((s) => s.trim()).filter(Boolean);
+    return Promise.all(keys.map((k) => {
+        const base = /^https?:\/\//.test(k) ? k.replace(/\/+$/, '') : `https://api.day.app/${k}`;
+        const url = `${base}/${encodeURIComponent(title)}/${encodeURIComponent(body)}?group=${encodeURIComponent('萱子')}`;
+        return $.get({ url }).catch(() => {});
+    }));
 }
 
 // 同时推送 TG 和 Bark, 配了哪个发哪个
