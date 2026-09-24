@@ -1,0 +1,19 @@
+#!name=萱子微商城Token自动更新
+#!desc=进入萱子微商城/会员俱乐部自动抓取 x-wx-token 并更新到青龙面板 XUANZI_WEIMOB 环境变量
+#!author=leos
+#!icon=https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Cookie.png
+
+[Argument]
+ql_url = input,"",tag=青龙面板地址,desc=如 https://ql.example.com
+ql_client_id = input,"",tag=Client ID,desc=青龙应用 Client ID
+ql_client_secret = input,"",tag=Client Secret,desc=青龙应用 Client Secret
+account_name = input,"萱子",tag=账号备注,desc=写入 XUANZI_WEIMOB 的账号名
+cron_search = input,"xuanzi_shop_monitor",tag=监控任务关键词,desc=留空则只更新环境变量
+tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token(可选)
+tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID(可选)
+
+[Script]
+http-request ^https:\/\/xapi\.weimob\.com\/api3\/mp-decoration\/web\/page\/queryPageInfo script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/xuanzi/xuanzi_weimob_token.js, tag=萱子微商城Token, argument=[{ql_url},{ql_client_id},{ql_client_secret},{account_name},{cron_search},{tg_bot_token},{tg_chat_id}]
+
+[MITM]
+hostname = xapi.weimob.com
