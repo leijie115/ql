@@ -54,7 +54,9 @@ function getQuery(url, key) {
         const openid = getQuery(url, 'openid');
         const wxOpenid = getQuery(url, 'wxOpenid');
 
-        if (!memberId || !enterpriseId || !unionid || !openid || !wxOpenid) {
+        // 签到页会先发一次 memberId=-1 的占位请求(用户信息未加载完), 必须跳过,
+        // 只有拿到真实 memberId 时才抓取, 避免写入无效数据
+        if (!memberId || memberId === '-1' || !enterpriseId || !unionid || !openid || !wxOpenid) {
             return $.done();
         }
 
