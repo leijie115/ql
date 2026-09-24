@@ -339,5 +339,8 @@ function saveSnapshot(snap) {
     saveSnapshot(nowSnap);
     log('快照已更新');
 })()
-    .catch((e) => log(`⚠️ 脚本异常: ${e.message}`))
+    .catch(async (e) => {
+        log(`⚠️ 脚本异常: ${e.message}`);
+        await notify(`<b>${scriptName}</b>\n⚠️ 脚本异常: ${e.message}`);
+    })
     .finally(() => process.exit(0));
