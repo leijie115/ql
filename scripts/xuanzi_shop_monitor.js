@@ -1,9 +1,9 @@
 /*
 cron: 0 0,6,12,18 * * *
 环境变量: XUANZI_WEIMOB  格式: 账号描述#x-wx-token  (单账号可只填 token)
-说明: 监控萱子"会员俱乐部/积分兑好物"装修页, 检测热区商品是否有新上/下架, 变化时TG通知(附图)
+说明: 监控萱子"会员俱乐部/积分兑好物"装修页, 检测热区商品是否有新上/下架, 变化时Bark通知(附图)
 其余商户参数(vid/bosId/pid/pageId 等)为固定常量, 已写死在脚本中
-TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
+Bark通知环境变量: LEOS_BARK_KEY  (多设备用 , 换行 或 @ 分隔)
 * new Env('萱子好物监控')
 */
 
@@ -13,8 +13,7 @@ const path = require('path');
 const { log } = console;
 
 const scriptName = '萱子好物监控';
-const TG_BOT_TOKEN = process.env.LEOS_TG_BOT_TOKEN || '';
-const TG_CHAT_ID = process.env.LEOS_TG_CHAT_ID || '';
+const BARK_KEY = process.env.LEOS_BARK_KEY || ''; // 多设备用 , 换行 或 @ 分隔
 
 // ============ 固定常量 (取自 app-config.json / 抓包) ============
 const HOST = 'xapi.weimob.com';
@@ -57,55 +56,41 @@ function httpPost(pathname, headers, body) {
     });
 }
 
-function sendTelegram(message) {
-    if (!TG_BOT_TOKEN || !TG_CHAT_ID) {
-        log('⚠️ 未配置TG环境变量，跳过通知');
-        return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-        const text = encodeURIComponent(message);
-        const p = `/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=${text}&parse_mode=HTML&disable_web_page_preview=true`;
-        const req = https.request({ hostname: 'api.telegram.org', path: p, method: 'GET' }, (res) => {
-            let d = '';
-            res.on('data', (c) => (d += c));
-            res.on('end', () => {
-                try {
-                    const j = JSON.parse(d);
-                    if (!j.ok) log(`⚠️ TG通知发送失败: ${j.description}`);
-                } catch {}
-                resolve();
-            });
-        });
-        req.on('error', (e) => {
-            log(`⚠️ TG通知异常: ${e.message}`);
-            resolve();
-        });
-        req.end();
-    });
+// HTML → 纯文本 (Bark 不支持HTML), 链接转成 "文字 URL"
+function htmlToText(s) {
+    return String(s)
+        .replace(/<a [^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/g, '$2 $1')
+        .replace(/<[^>]+>/g, '');
 }
 
-// 发送图片(带说明)
-function sendTelegramPhoto(photoUrl, caption) {
-    if (!TG_BOT_TOKEN || !TG_CHAT_ID) return Promise.resolve();
-    return new Promise((resolve) => {
-        const p = `/bot${TG_BOT_TOKEN}/sendPhoto?chat_id=${TG_CHAT_ID}&photo=${encodeURIComponent(photoUrl)}&caption=${encodeURIComponent(caption || '')}&parse_mode=HTML`;
-        const req = https.request({ hostname: 'api.telegram.org', path: p, method: 'GET' }, (res) => {
-            let d = '';
-            res.on('data', (c) => (d += c));
-            res.on('end', () => {
-                try {
-                    const j = JSON.parse(d);
-                    if (!j.ok) log(`⚠️ TG图片发送失败: ${j.description}`);
-                } catch {}
-                resolve();
-            });
+// Bark 推送: LEOS_BARK_KEY 支持多设备(, 换行 @ 分隔), 每个可为设备key或完整URL
+// image 可选, 传商品/装修图 URL 时 Bark 会展示大图
+function sendBark(title, body, image) {
+    if (!BARK_KEY) {
+        log('⚠️ 未配置环境变量 LEOS_BARK_KEY，跳过通知');
+        return Promise.resolve();
+    }
+    const keys = BARK_KEY.split(/[,\n@]/).map((s) => s.trim()).filter(Boolean);
+    return Promise.all(keys.map((k) => new Promise((resolve) => {
+        const base = /^https?:\/\//.test(k) ? k.replace(/\/+$/, '') : `https://api.day.app/${k}`;
+        let link = `${base}/${encodeURIComponent(title)}/${encodeURIComponent(body)}?group=${encodeURIComponent('萱子')}`;
+        if (image) link += `&image=${encodeURIComponent(image)}`;
+        const u = new URL(link);
+        const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET' }, (res) => {
+            res.on('data', () => {});
+            res.on('end', resolve);
         });
         req.on('error', (e) => {
-            log(`⚠️ TG图片异常: ${e.message}`);
+            log(`⚠️ Bark通知异常: ${e.message}`);
             resolve();
         });
         req.end();
-    });
+    })));
+}
+
+// 统一通知: 仅 Bark
+function notify(message, image) {
+    return sendBark(scriptName, htmlToText(message), image);
 }
 
 function getToken(envName) {
@@ -229,7 +214,7 @@ function saveSnapshot(snap) {
     const acc = getToken('XUANZI_WEIMOB');
     if (!acc || !acc.token) {
         log('⚠️ 未配置环境变量 XUANZI_WEIMOB');
-        await sendTelegram(`<b>${scriptName}</b>\n⚠️ 未配置环境变量 XUANZI_WEIMOB`);
+        await notify(`<b>${scriptName}</b>\n⚠️ 未配置环境变量 XUANZI_WEIMOB`);
         return;
     }
 
@@ -238,7 +223,7 @@ function saveSnapshot(snap) {
         res = await httpPost(API_PATH, buildHeaders(acc.token), buildBody());
     } catch (e) {
         log(`请求异常: ${e.message}`);
-        await sendTelegram(`<b>${scriptName}</b>\n⚠️ 请求异常: ${e.message}`);
+        await notify(`<b>${scriptName}</b>\n⚠️ 请求异常: ${e.message}`);
         return;
     }
 
@@ -247,7 +232,7 @@ function saveSnapshot(snap) {
         // 1041 等 = 登录态失效
         const hint = res && (res.errcode === 1041 || /登录/.test(msg)) ? '\n👉 x-wx-token 已失效，请打开小程序刷新后更新 XUANZI_WEIMOB' : '';
         log(`接口失败: ${msg}`);
-        await sendTelegram(`<b>${scriptName}</b>\n⚠️ 接口失败: ${msg}${hint}`);
+        await notify(`<b>${scriptName}</b>\n⚠️ 接口失败: ${msg}${hint}`);
         return;
     }
 
@@ -265,7 +250,7 @@ function saveSnapshot(snap) {
 
     if (ids.length === 0) {
         log('未解析到商品，可能页面结构变化，跳过(不覆盖快照)');
-        await sendTelegram(`<b>${scriptName}</b>\n⚠️ 未解析到商品，页面结构可能已变化，请检查`);
+        await notify(`<b>${scriptName}</b>\n⚠️ 未解析到商品，页面结构可能已变化，请检查`);
         return;
     }
 
@@ -276,7 +261,7 @@ function saveSnapshot(snap) {
     if (!prev || !prev.goods) {
         saveSnapshot(nowSnap);
         log('首次运行，已记录基线');
-        await sendTelegram(`<b>${scriptName}</b>\n✅ 首次运行，已记录基线，当前 ${ids.length} 个商品\n后续有新上/下架会通知`);
+        await notify(`<b>${scriptName}</b>\n✅ 首次运行，已记录基线，当前 ${ids.length} 个商品\n后续有新上/下架会通知`);
         return;
     }
 
@@ -311,11 +296,8 @@ function saveSnapshot(snap) {
 
     log(msg);
 
-    // 有新上且装修图更新时，附图发送
-    if (added.length && image) {
-        await sendTelegramPhoto(image, `萱子好物上新 ${added.length} 个`);
-    }
-    await sendTelegram(msg);
+    // 有新上时附装修图一起推送
+    await notify(msg, added.length && image ? image : '');
 
     saveSnapshot(nowSnap);
     log('快照已更新');

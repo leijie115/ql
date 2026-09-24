@@ -3,7 +3,7 @@ cron: 59 7 * * *
 环境变量: XUANZI  格式: 账号描述#memberId&enterpriseId&unionid&openid&wxOpenid  多账号用 @ 或换行分隔
 示例: 我的账号#8a80a18e...&ff80808174...&oyzS25ws...&orZki5UA...&oX7Wutz8...
 说明: appid 固定为 wxaa9dfe89bba7ec1e; sign 由脚本按小程序算法本地计算, 无需抓取
-TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
+Bark通知环境变量: LEOS_BARK_KEY  (多设备用 , 换行 或 @ 分隔)
 * new Env('萱子签到')
 */
 
@@ -14,8 +14,7 @@ const path = require('path');
 const { log } = console;
 
 const scriptName = '萱子签到';
-const TG_BOT_TOKEN = process.env.LEOS_TG_BOT_TOKEN || '';
-const TG_CHAT_ID = process.env.LEOS_TG_CHAT_ID || '';
+const BARK_KEY = process.env.LEOS_BARK_KEY || ''; // 多设备用 , 换行 或 @ 分隔
 
 const HOST = 'hope.demogic.com';
 const APPID = 'wxaa9dfe89bba7ec1e';
@@ -53,31 +52,38 @@ function httpRequest(method, url, headers, body) {
     });
 }
 
-function sendTelegram(message) {
-    if (!TG_BOT_TOKEN || !TG_CHAT_ID) {
-        log('⚠️ 未配置TG环境变量，跳过通知');
+// HTML → 纯文本 (Bark 不支持HTML), 链接转成 "文字 URL"
+function htmlToText(s) {
+    return String(s)
+        .replace(/<a [^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/g, '$2 $1')
+        .replace(/<[^>]+>/g, '');
+}
+
+// Bark 推送: LEOS_BARK_KEY 支持多设备(, 换行 @ 分隔), 每个可为设备key或完整URL
+function sendBark(title, body) {
+    if (!BARK_KEY) {
+        log('⚠️ 未配置环境变量 LEOS_BARK_KEY，跳过通知');
         return Promise.resolve();
     }
-    return new Promise((resolve) => {
-        const text = encodeURIComponent(message);
-        const p = `/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=${text}&parse_mode=HTML`;
-        const req = https.request({ hostname: 'api.telegram.org', path: p, method: 'GET' }, (res) => {
-            let data = '';
-            res.on('data', (chunk) => (data += chunk));
-            res.on('end', () => {
-                try {
-                    const json = JSON.parse(data);
-                    if (!json.ok) log(`⚠️ TG通知发送失败: ${json.description}`);
-                } catch {}
-                resolve();
-            });
+    const keys = BARK_KEY.split(/[,\n@]/).map((s) => s.trim()).filter(Boolean);
+    return Promise.all(keys.map((k) => new Promise((resolve) => {
+        const base = /^https?:\/\//.test(k) ? k.replace(/\/+$/, '') : `https://api.day.app/${k}`;
+        const u = new URL(`${base}/${encodeURIComponent(title)}/${encodeURIComponent(body)}?group=${encodeURIComponent('萱子')}`);
+        const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET' }, (res) => {
+            res.on('data', () => {});
+            res.on('end', resolve);
         });
         req.on('error', (e) => {
-            log(`⚠️ TG通知发送异常: ${e.message}`);
+            log(`⚠️ Bark通知异常: ${e.message}`);
             resolve();
         });
         req.end();
-    });
+    })));
+}
+
+// 统一通知: 仅 Bark
+function notify(message) {
+    return sendBark(scriptName, htmlToText(message));
 }
 
 function wait(ms) {
@@ -244,7 +250,7 @@ async function handleAccount(acc, index) {
         if (!info || info.code !== '0' || !info.result) {
             msg = `⚠️ ${acc.name} 查询签到信息失败: ${(info && info.message) || JSON.stringify(info)}`;
             log(msg);
-            await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+            await notify(`<b>${scriptName}</b>\n${msg}`);
             return;
         }
 
@@ -255,7 +261,7 @@ async function handleAccount(acc, index) {
             msg += `\n连续签到: ${r.continuousSign}天, 累计: ${r.cumulativeSign}天`;
             log(msg);
             if (!alreadyNotified(acc.name)) {
-                await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+                await notify(`<b>${scriptName}</b>\n${msg}`);
                 markNotified(acc.name);
             } else {
                 log('(今日已通知过，不再发送TG)');
@@ -270,7 +276,7 @@ async function handleAccount(acc, index) {
         if (!signRes || signRes.code !== '0') {
             msg = `⚠️ ${acc.name} 签到失败: ${(signRes && signRes.message) || JSON.stringify(signRes)}`;
             log(msg);
-            await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+            await notify(`<b>${scriptName}</b>\n${msg}`);
             return;
         }
 
@@ -293,7 +299,7 @@ async function handleAccount(acc, index) {
     }
 
     log(msg);
-    await sendTelegram(`<b>${scriptName}</b>\n${msg}`);
+    await notify(`<b>${scriptName}</b>\n${msg}`);
 }
 
 // ============ 主流程 ============
@@ -304,7 +310,7 @@ async function handleAccount(acc, index) {
 
     const tokens = getTokens('XUANZI');
     if (tokens.length === 0) {
-        await sendTelegram(`<b>${scriptName}</b>\n⚠️ 未配置环境变量 XUANZI`);
+        await notify(`<b>${scriptName}</b>\n⚠️ 未配置环境变量 XUANZI`);
         return;
     }
 
