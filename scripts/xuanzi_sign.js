@@ -1,5 +1,5 @@
 /*
-cron: 50 7 * * *
+cron: 59 7 * * *
 环境变量: XUANZI  格式: 账号描述#memberId&enterpriseId&unionid&openid&wxOpenid  多账号用 @ 或换行分隔
 示例: 我的账号#8a80a18e...&ff80808174...&oyzS25ws...&orZki5UA...&oX7Wutz8...
 说明: appid 固定为 wxaa9dfe89bba7ec1e; sign 由脚本按小程序算法本地计算, 无需抓取
