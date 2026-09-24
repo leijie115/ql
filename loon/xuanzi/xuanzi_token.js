@@ -36,6 +36,22 @@ function sendTG(botToken, chatId, text) {
     }).catch(() => {});
 }
 
+// Bark 推送: barkKey 可为设备key, 也可为完整URL(自建服务)
+function sendBark(barkKey, title, body) {
+    if (!barkKey) return Promise.resolve();
+    const base = /^https?:\/\//.test(barkKey) ? barkKey.replace(/\/+$/, '') : `https://api.day.app/${barkKey}`;
+    const url = `${base}/${encodeURIComponent(title)}/${encodeURIComponent(body)}?group=${encodeURIComponent('萱子')}`;
+    return $.get({ url }).catch(() => {});
+}
+
+// 同时推送 TG 和 Bark, 配了哪个发哪个
+function notifyAll(tgBotToken, tgChatId, barkKey, title, tgText, barkBody) {
+    return Promise.all([
+        sendTG(tgBotToken, tgChatId, tgText),
+        sendBark(barkKey, title, barkBody),
+    ]);
+}
+
 function getQuery(url, key) {
     const m = url.match(new RegExp('[?&]' + key + '=([^&]*)'));
     return m ? decodeURIComponent(m[1]) : '';
@@ -44,6 +60,7 @@ function getQuery(url, key) {
 (async () => {
     const tgBotToken = $argument.tg_bot_token || '';
     const tgChatId = $argument.tg_chat_id || '';
+    const barkKey = $argument.bark_key || '';
 
     try {
         const url = $request.url;
@@ -174,10 +191,14 @@ function getQuery(url, key) {
         }
 
         $.notify('萱子签到参数', `${name} 抓取成功`, qlResult);
-        await sendTG(tgBotToken, tgChatId, `萱子签到参数: ${name}\n${qlResult}\n\n参数👇\n<pre>${newEntry}</pre>`);
+        await notifyAll(tgBotToken, tgChatId, barkKey, '萱子签到参数',
+            `萱子签到参数: ${name}\n${qlResult}\n\n参数👇\n<pre>${newEntry}</pre>`,
+            `${name}\n${qlResult}\n\n${newEntry}`);
     } catch (e) {
         $.notify('萱子签到参数', '脚本异常 ❌', e.message || e);
-        await sendTG(tgBotToken, tgChatId, `萱子签到参数 脚本异常: ${e.message || e}`);
+        await notifyAll(tgBotToken, tgChatId, barkKey, '萱子签到参数',
+            `萱子签到参数 脚本异常: ${e.message || e}`,
+            `脚本异常: ${e.message || e}`);
     }
 
     $.done();

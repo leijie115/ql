@@ -35,6 +35,22 @@ function sendTG(botToken, chatId, text) {
     }).catch(() => {});
 }
 
+// Bark 推送: barkKey 可为设备key, 也可为完整URL(自建服务)
+function sendBark(barkKey, title, body) {
+    if (!barkKey) return Promise.resolve();
+    const base = /^https?:\/\//.test(barkKey) ? barkKey.replace(/\/+$/, '') : `https://api.day.app/${barkKey}`;
+    const url = `${base}/${encodeURIComponent(title)}/${encodeURIComponent(body)}?group=${encodeURIComponent('萱子')}`;
+    return $.get({ url }).catch(() => {});
+}
+
+// 同时推送 TG 和 Bark, 配了哪个发哪个
+function notifyAll(tgBotToken, tgChatId, barkKey, title, tgText, barkBody) {
+    return Promise.all([
+        sendTG(tgBotToken, tgChatId, tgText),
+        sendBark(barkKey, title, barkBody),
+    ]);
+}
+
 // 请求头大小写不敏感取值
 function getHeader(headers, key) {
     if (!headers) return '';
@@ -48,6 +64,7 @@ function getHeader(headers, key) {
 (async () => {
     const tgBotToken = $argument.tg_bot_token || '';
     const tgChatId = $argument.tg_chat_id || '';
+    const barkKey = $argument.bark_key || '';
 
     try {
         const token = getHeader($request.headers, 'x-wx-token');
@@ -160,10 +177,14 @@ function getHeader(headers, key) {
         }
 
         $.notify('萱子微商城Token', `${name} 抓取成功`, qlResult);
-        await sendTG(tgBotToken, tgChatId, `萱子微商城Token: ${name}\n${qlResult}\n\nx-wx-token👇\n<pre>${token}</pre>`);
+        await notifyAll(tgBotToken, tgChatId, barkKey, '萱子微商城Token',
+            `萱子微商城Token: ${name}\n${qlResult}\n\nx-wx-token👇\n<pre>${token}</pre>`,
+            `${name}\n${qlResult}\n\n${token}`);
     } catch (e) {
         $.notify('萱子微商城Token', '脚本异常 ❌', e.message || e);
-        await sendTG(tgBotToken, tgChatId, `萱子微商城Token 脚本异常: ${e.message || e}`);
+        await notifyAll(tgBotToken, tgChatId, barkKey, '萱子微商城Token',
+            `萱子微商城Token 脚本异常: ${e.message || e}`,
+            `脚本异常: ${e.message || e}`);
     }
 
     $.done();

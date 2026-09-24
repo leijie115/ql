@@ -11,9 +11,10 @@ account_name = input,"",tag=账号备注,desc=留空则用 memberId 后6位, 多
 cron_search = input,"xuanzi_sign",tag=签到任务关键词,desc=留空则只更新环境变量
 tg_bot_token = input,"",tag=TG Bot Token,desc=Telegram Bot Token(可选)
 tg_chat_id = input,"",tag=TG Chat ID,desc=Telegram Chat ID(可选)
+bark_key = input,"",tag=Bark Key,desc=Bark 设备key或完整URL(可选), TG/Bark 配哪个发哪个
 
 [Script]
-http-request ^https:\/\/hope\.demogic\.com\/gic-wx-app\/sign\/get-member-sign-info\.json\? script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/xuanzi/xuanzi_token.js, tag=萱子签到参数, argument=[{ql_url},{ql_client_id},{ql_client_secret},{account_name},{cron_search},{tg_bot_token},{tg_chat_id}]
+http-request ^https:\/\/hope\.demogic\.com\/gic-wx-app\/sign\/get-member-sign-info\.json\? script-path=https://raw.githubusercontent.com/leijie115/ql/main/loon/xuanzi/xuanzi_token.js, tag=萱子签到参数, argument=[{ql_url},{ql_client_id},{ql_client_secret},{account_name},{cron_search},{tg_bot_token},{tg_chat_id},{bark_key}]
 
 [MITM]
 hostname = hope.demogic.com
