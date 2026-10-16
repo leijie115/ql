@@ -6,8 +6,8 @@ cron: 50 7 * * *
 可选环境变量: NODESEEK_UA  请求使用的User-Agent, 默认为 iPhone Chrome
 可选环境变量: NODESEEK_IMPERSONATE  curl_cffi 模拟的TLS指纹, 默认 safari260_ios
 可选环境变量: NODESEEK_REFRACT_VERSION  站点 sw.js 版本, 默认 0.3.34
-可选环境变量: NODESEEK_PROXY  代理地址, 如 http://127.0.0.1:7890 或 socks5h://user:pass@host:1080
-             Cloudflare 按出口IP信誉拦截, 青龙服务器IP被拦(签到榜返回 Just a moment)时必须配置
+可选环境变量: NODESEEK_PROXY  备用代理, 如 http://127.0.0.1:7890 或 socks5h://user:pass@host:1080
+             默认直连; Cloudflare 偶尔按出口IP拦截(签到榜返回 Just a moment), 被拦时自动改走该代理重试
 依赖: curl_cffi (青龙 -> 依赖管理 -> python3 添加 curl_cffi)
 TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
 new Env('NodeSeek签到')
@@ -82,10 +82,10 @@ def get_accounts(env_name, splitors=('@', '\n')):
 # ============ refract 客户端 ============
 
 class RefractClient:
-    def __init__(self, cookie, user_agent):
+    def __init__(self, cookie, user_agent, proxy=''):
         from curl_cffi import requests as cffi_requests
 
-        proxies = {'http': PROXY, 'https': PROXY} if PROXY else None
+        proxies = {'http': proxy, 'https': proxy} if proxy else None
         self.session = cffi_requests.Session(impersonate=IMPERSONATE, proxies=proxies)
         self.cookie = cookie
         self.user_agent = user_agent
@@ -150,14 +150,18 @@ def is_cloudflare_challenge(resp):
     return 'cf_chl' in text or 'Just a moment' in text
 
 
+def mask_proxy(proxy):
+    return re.sub(r'//[^@/]*@', '//***@', proxy)
+
+
 def describe_failure(resp):
     if resp is None:
         return '无响应'
     if is_cloudflare_challenge(resp):
         if PROXY:
-            return 'Cloudflare 人机验证拦截\n当前代理的出口IP被拦, 请更换 NODESEEK_PROXY 节点'
+            return 'Cloudflare 人机验证拦截\n直连和 NODESEEK_PROXY 代理都被拦, 请更换代理节点'
         return ('Cloudflare 人机验证拦截\n'
-                '青龙服务器出口IP被 Cloudflare 拦截, 请配置 NODESEEK_PROXY 走代理')
+                '青龙服务器出口IP被拦, 可配置 NODESEEK_PROXY 作为被拦时的备用代理')
     if resp.status_code == 403:
         return f'refract 校验失败 (403)\n站点 sw.js 可能已升级, 请检查 refract 版本 (当前 {REFRACT_VERSION})'
     data = parse_json(resp)
@@ -189,20 +193,24 @@ def format_board_info(board):
     return '\n'.join(parts)
 
 
+def open_session(cookie, proxy):
+    client = RefractClient(cookie, USER_AGENT, proxy)
+    if client.init():
+        log('refract 会话 key 获取成功')
+    else:
+        log('⚠️ 未获取到 refract 会话 key, 将直接尝试请求')
+    return client, get_attendance_board(client)
+
+
 def do_sign(name, cookie, index):
     log(f'======== 【{index}】 {name} ========')
     try:
-        client = RefractClient(cookie, USER_AGENT)
-        if PROXY:
-            log(f"使用代理: {re.sub(r'//[^@/]*@', '//***@', PROXY)}")
+        # 1. 查询签到榜, 判断今天是否已签到; 直连被 Cloudflare 拦时改走备用代理
+        client, before_resp = open_session(cookie, '')
+        if is_cloudflare_challenge(before_resp) and PROXY:
+            log(f'⚠️ 直连被 Cloudflare 拦截, 改走代理 {mask_proxy(PROXY)} 重试')
+            client, before_resp = open_session(cookie, PROXY)
 
-        if client.init():
-            log('refract 会话 key 获取成功')
-        else:
-            log('⚠️ 未获取到 refract 会话 key, 将直接尝试请求')
-
-        # 1. 查询签到榜, 判断今天是否已签到
-        before_resp = get_attendance_board(client)
         if is_cloudflare_challenge(before_resp) or before_resp.status_code == 403:
             msg = f'⚠️ {name} 查询签到榜失败: {describe_failure(before_resp)}'
             log(msg)
