@@ -1,14 +1,14 @@
 """
 cron: 50 7 * * *
 环境变量: NODESEEK  格式: 账号描述#完整Cookie字符串  多账号用 @ 或换行分隔
-示例: 账号1#session=2U6g...; pjwt=eyJp...; smac=1792...; cf_clearance=fJNA...
-      (至少包含 session、pjwt、smac、cf_clearance, 登录后有效期约30天)
-可选环境变量: NODESEEK_UA  抓取Cookie时浏览器的User-Agent, 必须一致, 否则 cf_clearance 失效
-             (默认为 iPhone Chrome, 换设备/浏览器抓Cookie时务必同步修改)
+示例: 账号1#session=2U6g...; pjwt=eyJp...; smac=1792...
+      (至少包含 session、pjwt、smac, 登录后有效期约30天; cf_clearance 可不带)
+可选环境变量: NODESEEK_UA  请求使用的User-Agent, 默认为 iPhone Chrome
 可选环境变量: NODESEEK_IMPERSONATE  curl_cffi 模拟的TLS指纹, 默认 safari260_ios
 可选环境变量: NODESEEK_REFRACT_VERSION  站点 sw.js 版本, 默认 0.3.34
+可选环境变量: NODESEEK_PROXY  代理地址, 如 http://127.0.0.1:7890 或 socks5h://user:pass@host:1080
+             Cloudflare 按出口IP信誉拦截, 青龙服务器IP被拦(签到榜返回 Just a moment)时必须配置
 依赖: curl_cffi (青龙 -> 依赖管理 -> python3 添加 curl_cffi)
-注意: cf_clearance 绑定出口IP, 青龙出口IP需与抓Cookie的设备一致
 TG通知环境变量: LEOS_TG_BOT_TOKEN, LEOS_TG_CHAT_ID
 new Env('NodeSeek签到')
 """
@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -30,6 +31,7 @@ DEFAULT_UA = ('Mozilla/5.0 (iPhone; CPU iPhone OS 27_0_1 like Mac OS X) AppleWeb
               '(KHTML, like Gecko) CriOS/152.0.7977.151 Mobile/15E148 Safari/604.1')
 USER_AGENT = os.environ.get('NODESEEK_UA') or DEFAULT_UA
 IMPERSONATE = os.environ.get('NODESEEK_IMPERSONATE') or 'safari260_ios'
+PROXY = (os.environ.get('NODESEEK_PROXY') or '').strip()
 
 # refract 协议 (还原自 www.nodeseek.com/sw.js): 所有请求都要带签名头, 否则返回 403 Forbiden
 REFRACT_VERSION = os.environ.get('NODESEEK_REFRACT_VERSION') or '0.3.34'
@@ -83,7 +85,8 @@ class RefractClient:
     def __init__(self, cookie, user_agent):
         from curl_cffi import requests as cffi_requests
 
-        self.session = cffi_requests.Session(impersonate=IMPERSONATE)
+        proxies = {'http': PROXY, 'https': PROXY} if PROXY else None
+        self.session = cffi_requests.Session(impersonate=IMPERSONATE, proxies=proxies)
         self.cookie = cookie
         self.user_agent = user_agent
         self.key = REFRACT_INIT_KEY
@@ -151,9 +154,10 @@ def describe_failure(resp):
     if resp is None:
         return '无响应'
     if is_cloudflare_challenge(resp):
+        if PROXY:
+            return 'Cloudflare 人机验证拦截\n当前代理的出口IP被拦, 请更换 NODESEEK_PROXY 节点'
         return ('Cloudflare 人机验证拦截\n'
-                '请在浏览器重新通过验证后更新 NODESEEK Cookie, 并确认 NODESEEK_UA 与该浏览器一致、'
-                '青龙出口IP与抓Cookie的设备一致')
+                '青龙服务器出口IP被 Cloudflare 拦截, 请配置 NODESEEK_PROXY 走代理')
     if resp.status_code == 403:
         return f'refract 校验失败 (403)\n站点 sw.js 可能已升级, 请检查 refract 版本 (当前 {REFRACT_VERSION})'
     data = parse_json(resp)
@@ -189,6 +193,8 @@ def do_sign(name, cookie, index):
     log(f'======== 【{index}】 {name} ========')
     try:
         client = RefractClient(cookie, USER_AGENT)
+        if PROXY:
+            log(f"使用代理: {re.sub(r'//[^@/]*@', '//***@', PROXY)}")
 
         if client.init():
             log('refract 会话 key 获取成功')
